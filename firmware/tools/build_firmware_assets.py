@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from nrf52_uf2 import uf2_conversion_command
+
 ROOT = Path(__file__).resolve().parents[2]
 FIRMWARE = ROOT / "firmware"
 PLATFORMIO_INI = FIRMWARE / "platformio.ini"
@@ -261,14 +263,14 @@ def write_sha256s(dest: Path, files: list[Path]) -> None:
 
 
 def write_nrf52_uf2(hex_file: Path, dest: Path, env: str) -> Path:
-    uf2conv = (Path.home() / ".platformio" / "packages" /
-               "framework-arduinoadafruitnrf52" / "tools" / "uf2conv" /
-               "uf2conv.py")
-    if not uf2conv.exists():
-        raise SystemExit(f"Expected UF2 converter missing for {env}: {uf2conv}")
+    core_dir = Path(os.environ.get("PLATFORMIO_CORE_DIR", Path.home() / ".platformio"))
+    framework_dir = core_dir / "packages" / "framework-arduinoadafruitnrf52"
     uf2_file = dest / "firmware.uf2"
-    run([sys.executable, str(uf2conv), str(hex_file), "-c", "-f", "0xADA52840",
-         "-o", str(uf2_file)], FIRMWARE)
+    try:
+        command = uf2_conversion_command(framework_dir, hex_file, uf2_file)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Unable to generate UF2 for {env}: {exc}") from exc
+    run(command, FIRMWARE)
     return uf2_file
 
 
