@@ -64,13 +64,17 @@ a generic hand-written multi-image command for a fresh P4 install.
 `heltec_tracker_v2`, `ikoka_stick`, `xiao_wio_sx1262`, `photon_1w_xiao_esp32c6`,
 `lilygo_t3s3`, `rak3112_wismesh`, `esp32_p4_nano`, `ethermesh_1w`, or `station_g2`.
 
-nRF52 targets ship `firmware.hex`, `firmware.zip`, and `SHA256SUMS.txt` in
-`firmware/<env>/` after the firmware asset workflow runs. Use the ZIP with
-Adafruit nRF52 DFU, or double-click reset and use the board bootloader flow;
-there are no ESP32-style bootloader/partition offsets for these targets.
+nRF52 targets ship `firmware.hex`, `firmware.zip`, `firmware.uf2`, and
+`SHA256SUMS.txt` in `firmware/<env>/` after the firmware asset workflow runs.
+Use the ZIP with Adafruit nRF52 DFU, or double-click reset and use the board
+bootloader flow; there are no ESP32-style bootloader/partition offsets for
+these targets.
 
 `<env>` for nRF52 is one of: `heltec_t114`, `xiao_nrf52_wio`, or
 `rak4631_wismesh_eth`.
+
+A direct `pio run -e xiao_nrf52_wio` source build also creates
+`.pio/build/xiao_nrf52_wio/firmware.uf2` for drag-and-drop flashing.
 
 ```bash
 pip install esptool
