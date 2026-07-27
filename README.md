@@ -61,8 +61,10 @@ USB-CDC only.
   targets (P4-Nano, EtherMesh-1W, RAK4631). Wi-Fi boards are provisioned via AP portal
   (`openHop-Modem-XXXX` → `http://192.168.4.1`), USB, or their web UI; the TCP
   token defaults blank/open on fresh firmware and can be set from the web UI on
-  web-enabled builds. The RAK4631 Ethernet variant has no web UI/HTTP stack, so
-  its W5100S TCP defaults live in `OPENHOP_ETH_*` build flags.
+  web-enabled builds. The RAK4631 Ethernet variant provides a LAN-only,
+  authenticated WebUI and JSON/config API on port 80. It has no mDNS; discover
+  its IP from DHCP or configure a static address. Ethernet firmware upload is
+  intentionally disabled pending exact bootloader and recovery validation.
 
 ## Project layout
 
@@ -127,8 +129,24 @@ Per-board highlights (full pin numbers in the headers, mDNS prefix is
 - **WaveShare ESP32-P4-Nano** — RISC-V P4 + C6 + IP101GRI Ethernet PHY + off-board E22, runtime ETH-or-Wi-Fi (never both, see below).
 - **Heltec T114** — nRF52840 + bare SX1262 + ST7789 TFT 135×240, **no Wi-Fi/TCP/network OTA**; USB-CDC + UART transport only, OTA via Adafruit nRF52 DFU (USB) or in-app `CMD_OTA_*` over the protocol transport.
 - **RAK4631 USB** — RAK4631 nRF52840 core on a compatible WisBlock base, using the same proven internal SX1262 pins, DIO2 RF-switch policy, SPIM2 radio bus, and 22 dBm ceiling as the Ethernet build. The `rak4631_usb` environment omits the RAK13800 dependency and all W5100S/TCP/network initialization; native USB-CDC is the only modem transport.
-- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, no Wi-Fi, and no network OTA (flash via USB/DFU). The TCP server on port 5055 is the primary transport; USB-CDC is available as a fallback. The TCP token defaults blank/open, matching other fresh network firmware. On web-enabled ESP32 builds the token can be changed in the device web UI; this nRF52 Ethernet-only target has no web UI/HTTP stack, so its W5100S TCP token, port, and hostname are currently set by `OPENHOP_ETH_*` build flags. The hostname is stored for status reporting only — the W5100S library does not support DHCP option 12. Commands that persist state (standby, auto-CAD, display name) are accepted but volatile — there is no LittleFS/NodeState on this target, so they reset on reboot. Display commands (SET_DISPLAY_NAME) succeed as no-op stubs.
+- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, and no Wi-Fi. TCP port 5055 is the primary transport; USB-CDC is the fallback. Port 80 serves the authenticated WebUI/config API, but `/update` is absent and generated `firmware.ota` packages remain validation/staging artifacts rather than installable Ethernet OTA. The WebUI/API persist hostname, DHCP/static network values, TCP port/token, HTTP password, and compile-gated GPS state without echoing secret values. The default HTTP login is `admin` / `password`; change both the HTTP password and blank/open TCP token before trusting a shared LAN. The product USB descriptor is `WisMesh-openHop-Ethernet`; reselect any stale by-id serial path after flashing. A browser DFU session and interrupted-transfer recovery remain hardware validation gates, so the UI does not expose BLE DFU entry.
 - **Seeed XIAO nRF52840 + Wio-SX1262** (SKU 102010710) — XIAO nRF52840 + bare SX1262 on the Wio-SX1262 carrier, BLE 5.0 hardware unused, **no Wi-Fi/TCP/network OTA**, no display; native USB-CDC transport only, OTA via Adafruit nRF52 DFU (UF2 disk on double-click reset) or in-app `CMD_OTA_*`.
+
+RAK4631 battery reporting uses the source-backed `WB_A0` mapping
+(P0.05/AIN3), the nRF52 3.0 V internal ADC reference, 12-bit samples, eight
+nonblocking samples per batch, and a 1.73 divider scale. The WebUI reports
+voltage only; it does not infer charging state or state of charge. Real-board
+calibration against a meter is still required.
+The mapping was audited against MeshCore commit
+`2228214ded57c2761312730cdeae14b2b31bc5a3`,
+`variants/rak4631/RAK4631Board.h`, plus the official RAK nRF52 variant.
+
+Optional serial NMEA GPS is compile-gated with
+`PYMC_RAK4631_GPS_SERIAL_ENABLE=1` and uses Serial1 RX15/TX16 at 9600 baud.
+No GPS power/reset GPIO is guessed, and ordinary builds do not poll GPS. The
+RAK12500 I2C/slot-control mappings remain unimplemented until a safe base-board
+slot is physically verified; Ethernet power/reset pins 34/21 are reserved and
+must never be reused by GPS code.
 
 ### E22P RF switch (Ikoka, P4-Nano + E22P)
 
@@ -176,7 +194,7 @@ that differ from the ESP32-S3 family:
 ## Network exposure: LAN-only by design
 
 On Wi-Fi / Ethernet boards both TCP services — the protocol on 5055
-and OTA HTTP on 80 — refuse clients whose source address is outside
+and management/OTA HTTP on 80 where supported — refuse clients whose source address is outside
 RFC1918 (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`)
 or loopback (`127/8`). The check runs at `accept()` time before any
 frame parsing or auth. NAT port-forwards / Internet tunnels with a
@@ -193,8 +211,8 @@ in-app `OTA_*` commands carried over the same transport.
 
 ### Web UI / OTA / JSON API authentication (v0.8+)
 
-From v0.8 the HTTP surface (web management page, OTA `/update`, and
-the `/api/*` JSON endpoints) is gated by HTTP Basic Auth. Defaults on
+From v0.8 the HTTP surface (web management page, `/api/*` JSON endpoints,
+and OTA `/update` on ESP builds) is gated by HTTP Basic Auth. Defaults on
 first boot:
 
 - **user:** `admin`
@@ -212,6 +230,11 @@ the same password as its `--auth` token. Examples:
 # Flash over espota via PlatformIO  → pio run -e <env> -t upload \
 #       --upload-port <host> --upload-flags="--auth=password"
 ```
+
+The RAK4631 stores its password in the CRC-protected InternalFS config rather
+than ESP NVS. Its `/update` and BLE-DFU HTTP controls remain hidden until the
+exact installed bootloader and interrupted-update recovery behavior pass the
+hardware gate. RAK JSON responses expose `tcp_token_set`, never the token.
 
 Pre-v0.8 firmware used `heltec:<tcp_token>` on `/update` only — that
 scheme is gone, the same credential pair now covers every HTTP path.
@@ -261,6 +284,11 @@ CRC-16/CCITT (poly 0x1021, init 0xFFFF) over CMD+LEN+PAYLOAD.
 | 0x96 | OTA_APPLY         | — (v0.7; commit + reboot)             |
 | 0x98 | OTA_ABORT         | — (v0.7)                              |
 | 0xFF | PING              | —                                     |
+
+The RAK4631 staged writer is not connected to `CMD_OTA_*` or HTTP `/update`.
+Those update commands/routes must be treated as unsupported on that target
+until a compatible bootloader handoff and interrupted-update recovery path are
+verified on recoverable hardware.
 
 ### Modem → Host
 
