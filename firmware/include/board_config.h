@@ -73,6 +73,21 @@ struct WifiAntennaSwitchConfig {
     int8_t gpio14_pin = -1;      // ESP32-C6 Wi-Fi antenna select line 2
 };
 
+// ─── PMU (AXP2101-style power management IC) ────────────────
+// Some carriers (LilyGO T-Beam-S3 Supreme) gate the LoRa/GNSS/OLED power
+// rails through a PMU chip on its own I2C bus instead of plain GPIO
+// enables. `enabled = false` (the default) skips PmuManager::begin()
+// entirely, so every board without one compiles unchanged.
+struct PmuConfig {
+    bool   enabled = false;
+    int8_t i2c_sda = -1;   // PMU's own I2C bus (Wire1) — separate from the
+    int8_t i2c_scl = -1;   // OLED/sensor bus (Wire)
+    bool   aldo1 = false;  // sensor/OLED rail
+    bool   aldo2 = false;  // I2C bus enable
+    bool   aldo3 = false;  // LoRa radio rail
+    bool   aldo4 = false;  // GNSS rail
+};
+
 // ─── Full per-board config ──────────────────────────────────
 struct BoardConfig {
     const char* name;            // Display name on the OLED splash
@@ -226,6 +241,10 @@ struct BoardConfig {
     };
     EthernetConfig ethernet;
 
+    // Optional PMU chip (LilyGO T-Beam-S3 Supreme's AXP2101). Disabled by
+    // default — see PmuConfig above.
+    PmuConfig pmu;
+
     // Optional board-specific GPIO levels that must be asserted before radio
     // init and then left alone. Heltec V4 uses these for the PA/LNA front-end
     // mode pins; older boards leave static_gpio_count at 0.
@@ -268,6 +287,8 @@ extern const BoardConfig BOARD;
 #  include "boards/rak4631_wismesh_eth.h"
 #elif defined(BOARD_STATION_G2)
 #  include "boards/station_g2.h"
+#elif defined(BOARD_LILYGO_TBEAM_S3_SUPREME)
+#  include "boards/lilygo_tbeam_s3_supreme.h"
 #else
-#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_STATION_G2 to platformio.ini build_flags"
+#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_STATION_G2 / -DBOARD_LILYGO_TBEAM_S3_SUPREME to platformio.ini build_flags"
 #endif
