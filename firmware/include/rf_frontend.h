@@ -5,6 +5,9 @@
 namespace RFFrontEnd {
 
 void begin();
+bool hasPaModeControl();
+bool isPaHighPowerEnabled();
+bool setPaHighPowerEnabled(bool enabled, bool persist);
 bool hasHeltecV43LnaControl();
 bool isFemLnaBypassed();
 bool isExternalLnaEnabled();

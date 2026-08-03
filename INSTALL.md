@@ -21,13 +21,14 @@ your board:
 | LilyGO T-Beam-S3 Supreme | `lilygo_tbeam_s3_supreme` | `lilygo-tbeam-s3-supreme-<mac3>.local` | Wi-Fi |
 | RAK3112 WisMesh | `rak3112_wismesh` | `rak3112-<mac3>.local` | Wi-Fi |
 | B&Q Consulting Station G2 | `station_g2` | `station-g2-<mac3>.local` | Wi-Fi |
+| BQ Voyage Station G3 | `station_g3` | `station-g3-<mac3>.local` | Wi-Fi |
 | WaveShare ESP32-P4-Nano (+ off-board E22) | `esp32_p4_nano` | `p4nano-<mac3>.local` | **Ethernet or Wi-Fi** (runtime auto-select; cable plugged → ETH, no link → WiFi fallback. Both at once is unstable with radio active — see README "Porting to another ESP32-P4 board") |
 | MeshSmith EtherMesh-1W | `ethermesh_1w` | `ethermesh-1w-<mac3>.local` | **Ethernet** |
 | Heltec T114 | `heltec_t114` | n/a | none — USB-CDC + UART only |
 | RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (hostname is status-only) | **Ethernet** (W5100S, TCP port 5055) — no mDNS, no network OTA |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
 
-The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, and `photon_1w_xiao_esp32c6` envs use the
+The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
 [pioarduino fork](https://github.com/pioarduino/platform-espressif32)
 (pinned in `platformio.ini`) for the Arduino-ESP32 3.x / ESP-IDF 5.x
 toolchain; first build will fetch the platform package once.
@@ -64,7 +65,7 @@ a generic hand-written multi-image command for a fresh P4 install.
 `<env>` is one of: `heltec_v3`, `heltec_v4`, `heltec_v42`, `heltec_v43`,
 `heltec_tracker_v2`, `ikoka_stick`, `xiao_wio_sx1262`, `photon_1w_xiao_esp32c6`,
 `lilygo_t3s3`, `lilygo_tbeam_s3_supreme`, `rak3112_wismesh`, `esp32_p4_nano`,
-`ethermesh_1w`, or `station_g2`.
+`ethermesh_1w`, `station_g2`, or `station_g3`.
 
 nRF52 targets ship `firmware.hex`, `firmware.zip`, `firmware.uf2`, and
 `SHA256SUMS.txt` in `firmware/<env>/` after the firmware asset workflow runs.
@@ -83,7 +84,7 @@ pip install esptool
 
 # Full flash (fresh board, first install) — replace the ENV/CHIP pair
 # with the row that matches your board:
-ENV=heltec_v3      ; CHIP=esp32s3   # also for heltec_v4 / heltec_v42 / heltec_v43 / heltec_tracker_v2 / ikoka_stick / xiao_wio_sx1262 / lilygo_t3s3 / lilygo_tbeam_s3_supreme / rak3112_wismesh / station_g2
+ENV=heltec_v3      ; CHIP=esp32s3   # also for heltec_v4 / heltec_v42 / heltec_v43 / heltec_tracker_v2 / ikoka_stick / xiao_wio_sx1262 / lilygo_t3s3 / lilygo_tbeam_s3_supreme / rak3112_wismesh / station_g2 / station_g3
 # ENV=photon_1w_xiao_esp32c6 ; CHIP=esp32c6
 # ENV=esp32_p4_nano ; CHIP=esp32p4  # also for ethermesh_1w
 
@@ -107,6 +108,24 @@ esptool.py --chip $CHIP --port /dev/ttyUSB0 --baud 921600 write_flash \
 > **EtherMesh-1W flash port:** the ESP32-P4-ETH board uses its CH343P USB-UART
 > bridge for flashing/debug. Use the `/dev/ttyUSB*` / `/dev/cu.wchusbserial*`
 > port and `CHIP=esp32p4`.
+
+> **Station G3 power and download mode:** install the LoRa antenna before
+> powering the motherboard. The BQESP32V1M daughterboard's USB-C socket carries
+> data but does not power the board, so keep the Station G3 motherboard powered
+> from its 15 V USB-C PD input or a suitable 9–19 V DC supply while the MCU
+> daughterboard is connected to the computer. To force download mode, hold the
+> firmware-download button, press and release reset, wait about five seconds,
+> then release the firmware-download button. Press reset once after flashing if
+> the application does not restart automatically.
+
+> **Station G3 RF jumpers:** this firmware defaults PA PL1 to LOW (the lower PA
+> level); the Station G3-only RF Front-End panel can persistently select the
+> higher GPIO9 mode. It dynamically drives LNA P LOW for receive / HIGH for
+> transmit. Remove the PA PL1 and LNA P jumpers for those GPIO9/GPIO10 controls
+> to take effect.
+> PA PL2 remains a physical jumper. Always select a legal SX1262 drive level for
+> the configured PA mode; the firmware conservatively clamps chip drive to
+> 19 dBm, but the external PA produces substantially higher antenna power.
 
 On macOS the port is usually `/dev/cu.usbmodem*` for the Ikoka (native
 USB-CDC) or `/dev/cu.usbserial-*` for the Heltec (CP2102). If the board

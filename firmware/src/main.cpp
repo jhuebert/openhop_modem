@@ -1060,6 +1060,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             break;
         }
         sendFrame(CMD_CAD_RESP, result, 1, src);
+        startReceive();
         break;
     }
 

@@ -57,6 +57,15 @@ struct StaticGpioLevel {
     bool   level_high;
 };
 
+struct RfFrontEndControlConfig {
+    int8_t pa_mode_pin = -1;             // optional PA level-select GPIO
+    bool   pa_high_active_high = true;
+    bool   pa_default_high = false;       // conservative default is low-power mode
+    bool   pa_user_selectable = false;    // expose persistent runtime selection
+    int8_t lna_mode_pin = -1;            // optional RX-LNA mode GPIO
+    bool   lna_enabled_active_high = true;
+};
+
 struct BatterySenseConfig {
     int8_t pin;                 // ADC pin, -1 when no battery sense exists
     int8_t enable_pin;          // optional divider/ADC gate, -1 when always on
@@ -250,6 +259,12 @@ struct BoardConfig {
     // mode pins; older boards leave static_gpio_count at 0.
     StaticGpioLevel static_gpios[4];
     uint8_t static_gpio_count;
+
+    // Optional dynamic front-end controls. Keep this trailing so legacy
+    // positional board initializers can safely omit it. The PA mode is
+    // established during boot and held; the LNA is enabled for RX and bypassed
+    // before TX.
+    RfFrontEndControlConfig rf_frontend;
 };
 
 extern const BoardConfig BOARD;
@@ -289,6 +304,8 @@ extern const BoardConfig BOARD;
 #  include "boards/station_g2.h"
 #elif defined(BOARD_LILYGO_TBEAM_S3_SUPREME)
 #  include "boards/lilygo_tbeam_s3_supreme.h"
+#elif defined(BOARD_STATION_G3)
+#  include "boards/station_g3.h"
 #else
-#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_STATION_G2 / -DBOARD_LILYGO_TBEAM_S3_SUPREME to platformio.ini build_flags"
+#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_STATION_G2 / -DBOARD_LILYGO_TBEAM_S3_SUPREME / -DBOARD_STATION_G3 to platformio.ini build_flags"
 #endif

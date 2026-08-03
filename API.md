@@ -59,7 +59,7 @@ Example:
 
 Returns the current live radio settings.
 
-Example:
+Station G3 example:
 
 ```json
 {
@@ -72,12 +72,16 @@ Example:
   "bandwidth_khz": 62.5,
   "spreading_factor": 7,
   "coding_rate": 5,
-  "tx_power_dbm": 22,
+  "tx_power_dbm": 19,
   "syncword": "0x3444",
   "syncword_value": 13380,
-  "preamble_len": 17
+  "preamble_len": 17,
+  "pa_high_power_enabled": false
 }
 ```
+
+`pa_high_power_enabled` is included only on boards with software-selectable PA
+mode. Station G3 is currently the only such variant.
 
 ### `GET /api/network`
 
@@ -122,12 +126,12 @@ Top-level keys:
 
 Returns the saved editable configuration.
 
-Example:
+Station G3 example:
 
 ```json
 {
-  "hostname": "heltec-ab12cd",
-  "effective_hostname": "heltec-ab12cd",
+  "hostname": "station-g3-ab12cd",
+  "effective_hostname": "station-g3-ab12cd",
   "tcp_token": "your-token",
   "tcp_port": 5055,
   "use_static_ip": true,
@@ -135,9 +139,12 @@ Example:
   "subnet": "255.255.255.0",
   "gateway": "192.168.1.1",
   "dns1": "1.1.1.1",
-  "dns2": "8.8.8.8"
+  "dns2": "8.8.8.8",
+  "pa_high_power_enabled": false
 }
 ```
+
+The PA field is omitted on unsupported variants.
 
 ### `POST /api/config`
 
@@ -149,6 +156,9 @@ Accepted top-level fields:
 - `tcp_port`
 - `use_static_ip`
 - `network`
+- `pa_high_power_enabled` — Station G3 only; `false` selects the lower GPIO9
+  mode and `true` selects the higher mode. The setting applies immediately and
+  persists across reboots.
 
 `network` fields:
 - `use_static_ip`
@@ -163,6 +173,7 @@ Notes:
 - set `hostname` to `""` to reset to the default MAC-derived hostname
 - set `tcp_token` to `""` to clear the openHop token
 - if `use_static_ip` is `true`, `static_ip`, `subnet`, and `gateway` must be valid
+- unsupported variants reject `pa_high_power_enabled` rather than ignoring it
 - a successful request always reboots the modem
 
 Example:
