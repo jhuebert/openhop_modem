@@ -52,6 +52,21 @@ bool PmuManager::begin() {
         pmu->enablePowerOutput(XPOWERS_ALDO4);
     }
 
+    // T-Beam-S3 Supreme has no external NTC wired to the AXP2101's TS pin
+    // (same as T-Beam v1.1 / T-Beam-S3-Core upstream — LilyGO's own Power.cpp
+    // in meshtastic/firmware calls this out explicitly: leaving TS-pin
+    // measurement enabled makes the charger read a floating pin as an
+    // out-of-range battery temperature and refuse to charge). XPowersLib's
+    // AXP2101 init() already disables it internally, but we call it again
+    // here so the behavior doesn't silently depend on that library default.
+    pmu->disableTSPinMeasure();
+
+    // Charger defaults come from AXP2101 OTP and aren't guaranteed across
+    // chip batches; pin them to LilyGO's known-good values for a single-cell
+    // LiPo (same constants meshtastic/firmware uses for this board).
+    pmu->setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_500MA);
+    pmu->setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
+
     Serial.println("[PMU] AXP2101 init ok, rails enabled");
     return true;
 }

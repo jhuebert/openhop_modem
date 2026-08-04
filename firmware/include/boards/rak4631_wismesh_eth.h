@@ -128,6 +128,8 @@ inline const BoardConfig BOARD = {
     {true, BoardConfig::EthernetPhy::NONE, -1, -1, -1, -1, false, false,
      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
 
+    {},  // pmu — no PMU chip on this board
+
     // Official MeshCore RAK4631 firmware drives SX126X_POWER_EN high before
     // radio init. Keep that as a fixed board GPIO rather than overloading the
     // RF-switch EN delay path.

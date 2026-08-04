@@ -115,6 +115,8 @@ inline const BoardConfig BOARD = {
     {false, BoardConfig::EthernetPhy::NONE, -1, -1, -1, -1, false, false,
      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
 
+    {},  // pmu — no PMU chip on this board
+
     {{-1, false}, {-1, false}, {-1, false}, {-1, false}},
     0,
 };
