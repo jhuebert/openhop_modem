@@ -18,6 +18,7 @@ your board:
 | Seeed XIAO Wio-SX1262 | `xiao_wio_sx1262` | `xiao-wio-<mac3>.local` | Wi-Fi |
 | MeshSmith Photon-1W ESP32-C6 | `photon_1w_xiao_esp32c6` | `photon-c6-<mac3>.local` | Wi-Fi |
 | LilyGO T-LoRa T3-S3 v1.2/v1.3 | `lilygo_t3s3` | `lilygo-t3s3-<mac3>.local` | Wi-Fi |
+| LilyGO T-Beam-S3 Supreme | `lilygo_tbeam_s3_supreme` | `lilygo-tbeam-s3-supreme-<mac3>.local` | Wi-Fi |
 | RAK3112 WisMesh | `rak3112_wismesh` | `rak3112-<mac3>.local` | Wi-Fi |
 | B&Q Consulting Station G2 | `station_g2` | `station-g2-<mac3>.local` | Wi-Fi |
 | WaveShare ESP32-P4-Nano (+ off-board E22) | `esp32_p4_nano` | `p4nano-<mac3>.local` | **Ethernet or Wi-Fi** (runtime auto-select; cable plugged → ETH, no link → WiFi fallback. Both at once is unstable with radio active — see README "Porting to another ESP32-P4 board") |
@@ -62,7 +63,8 @@ a generic hand-written multi-image command for a fresh P4 install.
 
 `<env>` is one of: `heltec_v3`, `heltec_v4`, `heltec_v42`, `heltec_v43`,
 `heltec_tracker_v2`, `ikoka_stick`, `xiao_wio_sx1262`, `photon_1w_xiao_esp32c6`,
-`lilygo_t3s3`, `rak3112_wismesh`, `esp32_p4_nano`, `ethermesh_1w`, or `station_g2`.
+`lilygo_t3s3`, `lilygo_tbeam_s3_supreme`, `rak3112_wismesh`, `esp32_p4_nano`,
+`ethermesh_1w`, or `station_g2`.
 
 nRF52 targets ship `firmware.hex`, `firmware.zip`, `firmware.uf2`, and
 `SHA256SUMS.txt` in `firmware/<env>/` after the firmware asset workflow runs.
@@ -81,7 +83,7 @@ pip install esptool
 
 # Full flash (fresh board, first install) — replace the ENV/CHIP pair
 # with the row that matches your board:
-ENV=heltec_v3      ; CHIP=esp32s3   # also for heltec_v4 / heltec_v42 / heltec_v43 / heltec_tracker_v2 / ikoka_stick / xiao_wio_sx1262 / lilygo_t3s3 / rak3112_wismesh / station_g2
+ENV=heltec_v3      ; CHIP=esp32s3   # also for heltec_v4 / heltec_v42 / heltec_v43 / heltec_tracker_v2 / ikoka_stick / xiao_wio_sx1262 / lilygo_t3s3 / lilygo_tbeam_s3_supreme / rak3112_wismesh / station_g2
 # ENV=photon_1w_xiao_esp32c6 ; CHIP=esp32c6
 # ENV=esp32_p4_nano ; CHIP=esp32p4  # also for ethermesh_1w
 
@@ -145,8 +147,9 @@ curl -u admin:password -F firmware=@.pio/build/<env>/firmware.bin \
 ```
 
 Hostname stems are listed in §1 (e.g. `heltec`, `heltec-v4`, `heltec-v42`,
-`heltec-v43`, `tracker-v2`, `ikoka`, `xiao-wio`, `photon-c6`, `lilygo-t3s3`, `rak3112`, `station-g2`,
-`p4nano`). The board reboots after upload.
+`heltec-v43`, `tracker-v2`, `ikoka`, `xiao-wio`, `photon-c6`, `lilygo-t3s3`,
+`lilygo-tbeam-s3-supreme`, `rak3112`, `station-g2`, `p4nano`). The board
+reboots after upload.
 The HTTP OTA page uses Basic Auth with username `admin` and default
 password `password`; change it from the OTA page after first network boot.
 Rollback is **not** automatic on a broken image — keep the USB cable

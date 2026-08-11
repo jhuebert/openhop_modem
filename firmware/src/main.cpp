@@ -42,6 +42,7 @@
 #  include "ethernet_manager.h"
 #  include "runtime_stats.h"
 #  include "gps_manager.h"
+#  include "pmu_manager.h"
 #else
 // nRF52 builds exclude the ESP32 Wi-Fi/OTA/display managers via
 // platformio.ini's build_src_filter. Most nRF52 targets are
@@ -1425,6 +1426,16 @@ void setup() {
                               ? labels[rr] : "OTHER";
         Serial.printf("[BOOT] reset_reason=%d (%s)\n", rr, lbl);
     }
+
+    // On boards with a PMU (LilyGO T-Beam-S3 Supreme), the OLED/LoRa/GNSS
+    // rails are unpowered until this runs — must come before oled.begin(),
+    // SPI.begin()/radio.begin(), and GPSManager::begin() below. No-op on
+    // every other board (BOARD.pmu.enabled defaults to false). PmuManager
+    // only exists on ESP32 builds (see the #ifdef ARDUINO_ARCH_ESP32 include
+    // block above) — no nRF52 board has a PMU today.
+#ifdef ARDUINO_ARCH_ESP32
+    PmuManager::begin();
+#endif
 
     // Boot splash: show openHop logo for at least SPLASH_HOLD_MS while the
     // rest of setup() (Wi-Fi connect, Ethernet bring-up, radio init)
