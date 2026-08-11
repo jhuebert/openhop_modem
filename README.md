@@ -62,7 +62,7 @@ Raspberry Pi                                  openHop Modem
 
 ## Project layout
 
-- **`firmware/`** — PlatformIO tree, sixteen envs sharing one source.
+- **`firmware/`** — PlatformIO tree, seventeen envs sharing one source.
   Each board lives in `include/boards/<env>.h`; `platformio.ini` picks
   one via `-DBOARD_<NAME>`. Prebuilt artifacts (ESP32: combined
   `firmware.factory.bin` plus `bootloader.bin / partitions.bin / firmware.bin`;
