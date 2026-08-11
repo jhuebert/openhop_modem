@@ -14,6 +14,13 @@ struct Snapshot {
     bool hasBatteryChargeRatePctPerHour;
     bool batteryChargeRatePctPerHourValid;
     float batteryChargeRatePctPerHour;
+    bool stationG3PowerMonitorAvailable;
+    bool stationG3PowerValid;
+    float stationG3InputVoltageV;
+    float stationG3CurrentMa;
+    float stationG3PowerW;
+    float stationG3MinimumInputVoltageV;
+    float stationG3MaximumCurrentMa;
 };
 
 Snapshot capture();

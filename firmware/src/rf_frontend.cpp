@@ -13,9 +13,11 @@ namespace {
 #ifdef ARDUINO_ARCH_ESP32
 static constexpr const char* NVS_NAMESPACE = "lora_modem";
 static constexpr const char* STATION_G3_PA_HIGH_KEY = "g3_pa_high";
+static constexpr const char* STATION_G3_LNA_ENABLED_KEY = "g3_lna_en";
 #endif
 
 static bool paHighPowerEnabled = false;
+static bool stationG3LnaEnabled = true;
 
 static void writeConfiguredLevel(int8_t pin, bool active, bool activeHigh) {
     if (pin < 0) return;
@@ -64,8 +66,11 @@ void begin() {
     writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin,
                          false,
                          BOARD.rf_frontend.pa_high_active_high);
+    stationG3LnaEnabled = false;
+    setConfiguredLna(false);
 
     paHighPowerEnabled = BOARD.rf_frontend.pa_default_high;
+    stationG3LnaEnabled = BOARD.rf_frontend.lna_default_enabled;
 #ifdef ARDUINO_ARCH_ESP32
     if (hasPaModeControl()) {
         Preferences p;
@@ -74,11 +79,18 @@ void begin() {
             p.end();
         }
     }
+    if (hasStationG3LnaControl()) {
+        Preferences p;
+        if (p.begin(NVS_NAMESPACE, true)) {
+            stationG3LnaEnabled = p.getBool(STATION_G3_LNA_ENABLED_KEY, true);
+            p.end();
+        }
+    }
 #endif
     writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin,
                          paHighPowerEnabled,
                          BOARD.rf_frontend.pa_high_active_high);
-    setConfiguredLna(true);
+    setConfiguredLna(stationG3LnaEnabled);
 #if defined(BOARD_HELTEC_V43) && defined(ARDUINO_ARCH_ESP32)
     Preferences p;
     if (p.begin(NVS_NAMESPACE, true)) {
@@ -123,6 +135,35 @@ bool setPaHighPowerEnabled(bool enabled, bool persist) {
     writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin,
                          paHighPowerEnabled,
                          BOARD.rf_frontend.pa_high_active_high);
+    return true;
+}
+
+bool hasStationG3LnaControl() {
+    return BOARD.rf_frontend.lna_user_selectable &&
+           BOARD.rf_frontend.lna_mode_pin >= 0;
+}
+
+bool isStationG3LnaEnabled() {
+    return hasStationG3LnaControl() && stationG3LnaEnabled;
+}
+
+bool setStationG3LnaEnabled(bool enabled, bool persist) {
+    if (!hasStationG3LnaControl()) return false;
+
+    if (persist) {
+#ifdef ARDUINO_ARCH_ESP32
+        Preferences p;
+        if (!p.begin(NVS_NAMESPACE, false)) return false;
+        bool ok = p.putBool(STATION_G3_LNA_ENABLED_KEY, enabled) > 0;
+        p.end();
+        if (!ok) return false;
+#else
+        return false;
+#endif
+    }
+
+    stationG3LnaEnabled = enabled;
+    setConfiguredLna(stationG3LnaEnabled);
     return true;
 }
 
@@ -179,7 +220,7 @@ void prepareTransmit() {
 }
 
 void prepareReceive() {
-    setConfiguredLna(true);
+    setConfiguredLna(hasStationG3LnaControl() ? stationG3LnaEnabled : true);
 #if defined(BOARD_HELTEC_V43) && defined(ARDUINO_ARCH_ESP32)
     applyHeltecV43LnaState();
 #endif

@@ -36,22 +36,30 @@ Example:
 
 ### `GET /api/system`
 
-Returns basic device identity and live host connection info.
+Returns basic device identity and live host connection info. Station G3 also
+includes its onboard INA219 power-monitor state and readings. INA219 values are
+`null` when the monitor is not detected or its latest read failed.
 
 Example:
 
 ```json
 {
-  "board": "Heltec WiFi LoRa 32 V3",
-  "firmware": "v0.8.0-heltec_v3",
-  "hostname": "heltec-ab12cd",
-  "mdns": "heltec-ab12cd.local",
+  "board": "BQ Voyage Station G3",
+  "firmware": "v1.0.1-station_g3",
+  "hostname": "station-g3-ab12cd",
+  "mdns": "station-g3-ab12cd.local",
   "interface": "Wi-Fi",
   "current_ip": "192.168.1.42",
   "connected_client_ip": "192.168.1.10",
   "uptime_sec": 42,
   "uptime": "00:00:42",
-  "die_temperature_c": 24
+  "die_temperature_c": 24,
+  "station_g3_power_monitor_available": true,
+  "station_g3_input_voltage_v": 12.412,
+  "station_g3_current_ma": 146.3,
+  "station_g3_power_w": 1.816,
+  "station_g3_minimum_input_voltage_v": 12.287,
+  "station_g3_maximum_current_ma": 891.2
 }
 ```
 
@@ -76,12 +84,13 @@ Station G3 example:
   "syncword": "0x3444",
   "syncword_value": 13380,
   "preamble_len": 17,
-  "pa_high_power_enabled": false
+  "pa_high_power_enabled": false,
+  "station_g3_external_lna_enabled": true
 }
 ```
 
-`pa_high_power_enabled` is included only on boards with software-selectable PA
-mode. Station G3 is currently the only such variant.
+`pa_high_power_enabled` and `station_g3_external_lna_enabled` are Station G3-only.
+The LNA setting controls receive mode; firmware always bypasses the LNA before TX.
 
 ### `GET /api/network`
 
@@ -117,7 +126,7 @@ Example:
 Returns the combined system, radio, counters, and network state in one response.
 
 Top-level keys:
-- `system` — board, firmware, hostname, uptime, die temperature, and battery voltage only when the board variant defines battery sensing (`battery_voltage_mv`, `battery_voltage_v`; otherwise `null`)
+- `system` — board, firmware, hostname, uptime, die temperature, battery voltage only when the board variant defines battery sensing (`battery_voltage_mv`, `battery_voltage_v`; otherwise `null`), and Station G3-only INA219 power readings
 - `radio`
 - `counters`
 - `network`
@@ -140,11 +149,12 @@ Station G3 example:
   "gateway": "192.168.1.1",
   "dns1": "1.1.1.1",
   "dns2": "8.8.8.8",
-  "pa_high_power_enabled": false
+  "pa_high_power_enabled": false,
+  "station_g3_external_lna_enabled": true
 }
 ```
 
-The PA field is omitted on unsupported variants.
+The PA and Station G3 LNA fields are omitted on unsupported variants.
 
 ### `POST /api/config`
 
@@ -159,6 +169,9 @@ Accepted top-level fields:
 - `pa_high_power_enabled` — Station G3 only; `false` selects the lower GPIO9
   mode and `true` selects the higher mode. The setting applies immediately and
   persists across reboots.
+- `station_g3_external_lna_enabled` — Station G3 only; enables or bypasses the
+  receive-only external LNA on GPIO10. The setting applies immediately,
+  persists across reboots, and never enables the LNA during TX.
 
 `network` fields:
 - `use_static_ip`
@@ -173,7 +186,7 @@ Notes:
 - set `hostname` to `""` to reset to the default MAC-derived hostname
 - set `tcp_token` to `""` to clear the openHop token
 - if `use_static_ip` is `true`, `static_ip`, `subnet`, and `gateway` must be valid
-- unsupported variants reject `pa_high_power_enabled` rather than ignoring it
+- unsupported variants reject Station G3 PA/LNA fields rather than ignoring them
 - a successful request always reboots the modem
 
 Example:

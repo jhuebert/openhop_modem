@@ -80,5 +80,7 @@ inline const BoardConfig BOARD = {
         .pa_user_selectable = true,
         .lna_mode_pin = 10,
         .lna_enabled_active_high = false,
+        .lna_default_enabled = true,
+        .lna_user_selectable = true,
     },
 };

@@ -17,6 +17,7 @@
 #include "frame_parser.h"
 #include "compat.h"
 #include "rf_frontend.h"
+#include "station_g3_power.h"
 #if defined(BOARD_HELTEC_T114)
 #  include "node_state.h"
 #endif
@@ -403,6 +404,14 @@ Snapshot capture() {
         snap.batteryChargeRatePctPerHourValid = readBatteryChargeRatePctPerHour(
             snap.batteryChargeRatePctPerHour);
     }
+    StationG3Power::Snapshot power = StationG3Power::snapshot();
+    snap.stationG3PowerMonitorAvailable = power.available;
+    snap.stationG3PowerValid = power.valid;
+    snap.stationG3InputVoltageV = power.inputVoltageV;
+    snap.stationG3CurrentMa = power.currentMa;
+    snap.stationG3PowerW = power.powerW;
+    snap.stationG3MinimumInputVoltageV = power.minimumInputVoltageV;
+    snap.stationG3MaximumCurrentMa = power.maximumCurrentMa;
     return snap;
 }
 }
@@ -1443,6 +1452,7 @@ void setup() {
     // proceeds in the background. We just record when it went up;
     // the wait-until-elapsed happens at the end of setup().
     oled.begin();
+    StationG3Power::begin();
 #if defined(BOARD_HELTEC_T114)
     // Push restored state onto the OLED before showSplash so the
     // boot screen already has the right name + standby tag.
@@ -1721,6 +1731,7 @@ void loop() {
     loopStartUs = (uint32_t)micros();
 
     compatWdtReset();   // feed the loop watchdog every pass
+    StationG3Power::loop();
 
     // DIO1 during TX is consumed by the TX handler's own wait loop; in
     // loop() we only act on it when the radio is in RX mode.

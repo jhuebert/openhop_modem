@@ -64,6 +64,8 @@ struct RfFrontEndControlConfig {
     bool   pa_user_selectable = false;    // expose persistent runtime selection
     int8_t lna_mode_pin = -1;            // optional RX-LNA mode GPIO
     bool   lna_enabled_active_high = true;
+    bool   lna_default_enabled = true;
+    bool   lna_user_selectable = false;   // expose persistent RX-only selection
 };
 
 struct BatterySenseConfig {
