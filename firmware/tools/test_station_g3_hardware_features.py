@@ -17,12 +17,14 @@ for declaration in (
     "bool hasStationG3LnaControl();",
     "bool isStationG3LnaEnabled();",
     "bool setStationG3LnaEnabled(bool enabled, bool persist);",
+    "bool setStationG3RfConfig(bool paHighPower, bool lnaEnabled, bool persist);",
+    "void prepareStandby();",
 ):
     assert declaration in rf_header
-assert 'STATION_G3_LNA_ENABLED_KEY = "g3_lna_en"' in rf_source
-assert "p.getBool(STATION_G3_LNA_ENABLED_KEY, true)" in rf_source
-assert "p.putBool(STATION_G3_LNA_ENABLED_KEY, enabled)" in rf_source
-assert "setConfiguredLna(stationG3LnaEnabled);" in rf_source
+assert 'STATION_G3_RF_CONFIG_KEY = "g3_rf_cfg"' in rf_source
+assert "p.getUChar(STATION_G3_RF_CONFIG_KEY" in rf_source
+assert "p.putUChar(STATION_G3_RF_CONFIG_KEY, packed)" in rf_source
+assert "setConfiguredLna(stationG3InReceive && stationG3LnaEnabled);" in rf_source
 
 power_header = FIRMWARE / "include/station_g3_power.h"
 power_source = FIRMWARE / "src/station_g3_power.cpp"
@@ -32,6 +34,12 @@ power = power_source.read_text()
 assert "Adafruit_INA219" in power
 assert "setCalibration_32V_2A" in power
 assert "SAMPLE_INTERVAL_MS" in power
+assert "MAX_CONSECUTIVE_FAILURES" in power
+assert "REPROBE_INTERVAL_MS" in power
+assert "consecutiveFailures" in power
+assert "tryBegin" in power
+assert "bool voltageReadOk = ina219.success();" in power
+assert "bool currentReadOk = ina219.success();" in power
 assert "minimumInputVoltageV" in power
 assert "maximumCurrentMa" in power
 
@@ -40,6 +48,11 @@ assert '#include "station_g3_power.h"' in main
 assert "StationG3Power::begin();" in main
 assert "StationG3Power::loop();" in main
 assert "StationG3Power::snapshot()" in main
+assert "RFFrontEnd::prepareStandby();" in main
+loop_body = main.split("void loop() {", 1)[1]
+assert loop_body.index("if (dio1Flag && !isTxActive)") < loop_body.index("StationG3Power::loop();")
+assert loop_body.index("while (Serial.available())") < loop_body.index("StationG3Power::loop();")
+assert loop_body.index("TCPServer::loop()") < loop_body.index("StationG3Power::loop();")
 
 runtime = (FIRMWARE / "include/runtime_stats.h").read_text()
 for field in (
@@ -70,6 +83,9 @@ for field in (
 # unrelated board variants or added to the binary host protocol.
 assert "if (RFFrontEnd::hasStationG3LnaControl())" in ota
 assert "snap.stationG3PowerMonitorAvailable" in ota
+assert "RFFrontEnd::setStationG3RfConfig(" in ota
+assert "RFFrontEnd::setPaHighPowerEnabled(" not in ota
+assert "RFFrontEnd::setStationG3LnaEnabled(" not in ota
 protocol = (FIRMWARE / "include/protocol.h").read_text()
 assert "station_g3" not in protocol.lower()
 

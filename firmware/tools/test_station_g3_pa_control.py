@@ -27,32 +27,32 @@ for declaration in (
 ):
     assert declaration in rf_header
 
-assert 'STATION_G3_PA_HIGH_KEY = "g3_pa_high"' in rf_source
+assert 'STATION_G3_RF_CONFIG_KEY = "g3_rf_cfg"' in rf_source
 assert "BOARD.rf_frontend.pa_user_selectable" in rf_source
 assert "writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin" in rf_source
-assert "p.getBool(STATION_G3_PA_HIGH_KEY, BOARD.rf_frontend.pa_default_high)" in rf_source
-assert "p.putBool(STATION_G3_PA_HIGH_KEY, enabled)" in rf_source
+assert "p.getUChar(STATION_G3_RF_CONFIG_KEY" in rf_source
+assert "p.putUChar(STATION_G3_RF_CONFIG_KEY, packed)" in rf_source
 
 begin_body = rf_source.split("void begin() {", 1)[1].split("bool hasPaModeControl()", 1)[0]
-assert begin_body.index("writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin") < begin_body.index("p.getBool(STATION_G3_PA_HIGH_KEY")
+assert begin_body.index("writeConfiguredLevel(BOARD.rf_frontend.pa_mode_pin") < begin_body.index("p.getUChar(STATION_G3_RF_CONFIG_KEY")
 
-set_pa_body = rf_source.split("bool setPaHighPowerEnabled", 1)[1].split("bool hasHeltecV43LnaControl", 1)[0]
-assert set_pa_body.index("p.putBool(STATION_G3_PA_HIGH_KEY, enabled)") < set_pa_body.index("paHighPowerEnabled = enabled")
+set_rf_body = rf_source.split("bool setStationG3RfConfig", 1)[1].split("bool hasHeltecV43LnaControl", 1)[0]
+assert set_rf_body.index("p.putUChar(STATION_G3_RF_CONFIG_KEY, packed)") < set_rf_body.index("paHighPowerEnabled = paHighPower")
 
 assert 'if (RFFrontEnd::hasPaModeControl()) {' in ota
 assert "Station G3 RF Front-End" in ota
 assert 'action=\'/rf-pa\'' in ota
-route_guard = 'if (RFFrontEnd::hasPaModeControl()) {\n        httpServer->on("/rf-pa", HTTP_POST, handleRfPaSave);'
+route_guard = 'if (RFFrontEnd::hasPaModeControl() && RFFrontEnd::hasStationG3LnaControl()) {\n        httpServer->on("/rf-pa", HTTP_POST, handleRfPaSave);'
 assert route_guard in ota
 assert 'obj["pa_high_power_enabled"]' in ota
 assert '"pa_high_power_enabled"' in ota
-assert "PA mode control is not supported on this board" in ota
+assert "Station G3 RF front-end control is not supported on this board" in ota
 
 parse_body = ota.split("static bool applyConfigPatch", 1)[1].split("// ─── Rollback sanity check", 1)[0]
 assert "RFFrontEnd::setPaHighPowerEnabled" not in parse_body
 assert "rfPatch.paHighPowerEnabled = paVal.as<bool>();" in parse_body
 
 post_body = ota.split("static void handleApiConfigPost()", 1)[1].split("static void handleApiReboot()", 1)[0]
-assert post_body.index("applyConfigPatch") < post_body.index("RFFrontEnd::setPaHighPowerEnabled")
+assert post_body.index("applyConfigPatch") < post_body.index("RFFrontEnd::setStationG3RfConfig")
 
 print("Station G3 PA control contract: PASS")

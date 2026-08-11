@@ -1194,15 +1194,17 @@ static void handleApiConfigPost() {
         return;
     }
 
-    if (rfPatch.hasPaHighPower &&
-        !RFFrontEnd::setPaHighPowerEnabled(rfPatch.paHighPowerEnabled, true)) {
-        sendJsonError(500, "Failed to save PA mode setting.");
-        return;
-    }
-    if (rfPatch.hasStationG3Lna &&
-        !RFFrontEnd::setStationG3LnaEnabled(rfPatch.stationG3LnaEnabled, true)) {
-        sendJsonError(500, "Failed to save Station G3 LNA setting.");
-        return;
+    if (rfPatch.hasPaHighPower || rfPatch.hasStationG3Lna) {
+        bool paHighPower = rfPatch.hasPaHighPower
+                               ? rfPatch.paHighPowerEnabled
+                               : RFFrontEnd::isPaHighPowerEnabled();
+        bool lnaEnabled = rfPatch.hasStationG3Lna
+                              ? rfPatch.stationG3LnaEnabled
+                              : RFFrontEnd::isStationG3LnaEnabled();
+        if (!RFFrontEnd::setStationG3RfConfig(paHighPower, lnaEnabled, true)) {
+            sendJsonError(500, "Failed to save Station G3 RF front-end settings.");
+            return;
+        }
     }
     if (rfPatch.hasExternalLna &&
         !RFFrontEnd::setFemLnaBypassed(!rfPatch.externalLnaEnabled, true)) {
@@ -1388,14 +1390,9 @@ static void handleRfPaSave() {
     }
 
     bool highPower = httpServer->hasArg("g3_pa_high");
-    if (!RFFrontEnd::setPaHighPowerEnabled(highPower, true)) {
-        httpServer->send(500, "text/plain", "Failed to save Station G3 PA mode.\n");
-        return;
-    }
-
     bool enableExternalLna = httpServer->hasArg("g3_lna_on");
-    if (!RFFrontEnd::setStationG3LnaEnabled(enableExternalLna, true)) {
-        httpServer->send(500, "text/plain", "Failed to save Station G3 LNA mode.\n");
+    if (!RFFrontEnd::setStationG3RfConfig(highPower, enableExternalLna, true)) {
+        httpServer->send(500, "text/plain", "Failed to save Station G3 RF front-end settings.\n");
         return;
     }
 
@@ -1582,7 +1579,7 @@ void begin(const String& hn, const String& tk) {
     httpServer->on("/network", HTTP_POST, handleNetworkSave);
     httpServer->on("/gps",     HTTP_POST, handleGpsSave);
     httpServer->on("/rf-lna",  HTTP_POST, handleRfLnaSave);
-    if (RFFrontEnd::hasPaModeControl()) {
+    if (RFFrontEnd::hasPaModeControl() && RFFrontEnd::hasStationG3LnaControl()) {
         httpServer->on("/rf-pa", HTTP_POST, handleRfPaSave);
     }
     httpServer->on("/token",  HTTP_POST, handleTokenSave);

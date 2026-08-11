@@ -1247,6 +1247,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         break;
     }
     case CMD_RADIO_STANDBY: {
+        RFFrontEnd::prepareStandby();
         radio.standby();
         radioStandby = true;
         oled.setStandby(true);
@@ -1731,7 +1732,6 @@ void loop() {
     loopStartUs = (uint32_t)micros();
 
     compatWdtReset();   // feed the loop watchdog every pass
-    StationG3Power::loop();
 
     // DIO1 during TX is consumed by the TX handler's own wait loop; in
     // loop() we only act on it when the radio is in RX mode.
@@ -1764,6 +1764,9 @@ void loop() {
     maybeResetAgc();
     if (BOARD.has_wifi) WifiManager::loop();
     EthernetManager::loop();
+    // Low-priority I2C telemetry runs only after radio IRQs and all host
+    // transports have been drained for this iteration.
+    StationG3Power::loop();
 
     // Lazy TCP + OTA start if STA or Ethernet came up after boot.
     bool netUp = WifiManager::isSTAConnected() || EthernetManager::hasIP();
