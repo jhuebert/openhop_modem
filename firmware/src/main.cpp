@@ -262,6 +262,39 @@ static uint8_t cadDetPeak  = 22;    // openHop Core default for SF7-SF8
 static uint8_t cadDetMin   = 10;    // AN1200.48 recommendation
 static uint8_t cadExitMode = 0x00;  // RADIOLIB_SX126X_CAD_GOTO_STDBY
 
+// ─── Reception-in-progress guard ─────────────────────────────
+// PREAMBLE_DETECTED / HEADER_VALID latch in the chip's IRQ status while a
+// frame is being received (DIO1 only fires on terminal IRQs, so the flags
+// stay readable here; readData() clears them once the frame completes).
+// Lets the TX path defer to an ongoing reception instead of aborting it —
+// CAD cannot do that: startChannelScan() drops to standby first, and its
+// 2-symbol scan is unreliable mid-payload anyway. Parity with MeshCore
+// CustomSX1262::isReceiving(). The millis bound keeps stale flags — a
+// reception the RX path never got to consume — from wedging TX forever,
+// like MeshCore's _maxPayloadMillis.
+static uint32_t rxActivityAt = 0;
+
+static bool isReceivingPacket() {
+    uint32_t irq = radio.getIrqFlags();
+    bool active = (irq & (RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+                          RADIOLIB_SX126X_IRQ_HEADER_VALID)) != 0;
+    if (!active) {
+        rxActivityAt = 0;
+        return false;
+    }
+    uint32_t now = millis();
+    if (rxActivityAt == 0) rxActivityAt = now;
+    // Worst-case airtime of a max-size frame at current settings, padded 50%.
+    uint32_t maxMs = (uint32_t)(radio.getTimeOnAir(MAX_LORA_PAYLOAD) / 1000) * 3 / 2 + 100;
+    if (now - rxActivityAt > maxMs) {
+        radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+                            RADIOLIB_SX126X_IRQ_HEADER_VALID);
+        rxActivityAt = 0;
+        return false;
+    }
+    return true;
+}
+
 // ─── Transport state ─────────────────────────────────────────
 static FrameParser serialParser;
 static FrameParser uartParser;        // protocol UART (Serial2 on nRF52)
@@ -885,24 +918,31 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         // timeouts), which in turn blocked loop() long enough for the 30 s
         // task watchdog to reboot the firmware every minute.
         isTxActive = true;
-        radio.standby();
-        delay(1);
 
         // ─── Auto-CAD before TX (when enabled by controller) ──
         // Up to CAD_AUTO_RETRIES of CAD-with-backoff. If the
         // channel is busy after every retry, we bail with
         // ERR_CHANNEL_BUSY instead of trampling a neighbour.
         // Local decision (lowest latency vs P4-managed equivalent).
+        // All channel checks run BEFORE the standby that stages the
+        // TX: standby() aborts an in-progress reception, so the old
+        // order destroyed the very reception it was about to probe.
         if (autoCadEnabled) {
             // 2 retries (3 scans total) + tightened jitter caps
-            // worst-case main-loop blocking around ~450 ms (was ~1 s
-            // before). Important because the loop also drains the
-            // UART RX ring — at 921600 baud the controller can push
+            // worst-case main-loop blocking around ~750 ms.
+            // Important because the loop also drains the UART RX
+            // ring — at 921600 baud the controller can push
             // ~46 KB/s and our SERIAL_BUFFER_SIZE is 512 B.
             constexpr uint8_t  CAD_AUTO_RETRIES   = 2;
             constexpr uint32_t CAD_TIMEOUT_MS     = 200;   // worst-case SF12 ≈ 100 ms
             bool channel_clear = false;
             for (uint8_t attempt = 0; attempt < CAD_AUTO_RETRIES; attempt++) {
+                // Passive guard first: a latched in-progress reception
+                // is authoritative — no scan, no standby, no abort.
+                if (isReceivingPacket()) {
+                    delay(50 + (micros() % 150));
+                    continue;
+                }
                 ChannelScanConfig_t cfg = {};
                 cfg.cad.symNum    = cadSymNum;
                 cfg.cad.detPeak   = cadDetPeak;
@@ -921,9 +961,13 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 radio.clearIrqFlags(RADIOLIB_IRQ_CAD_DEFAULT_FLAGS);
                 bool busy = (irq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) != 0;
                 if (!busy) { channel_clear = true; break; }
-                // Random backoff 50-200 ms to prevent step-locking
-                // with another sector that retried at the same time.
-                delay(20 + (millis() & 0x1F));
+                // Random backoff 50-200 ms to prevent step-locking with
+                // another sector that retried at the same time. (The old
+                // delay(20 + (millis() & 0x1F)) waited 20-51 ms despite
+                // its comment; micros() is the jitter source because
+                // Arduino random() is unseeded — and identical — on the
+                // nRF52 targets.)
+                delay(50 + (micros() % 150));
             }
             if (!channel_clear) {
                 LOG_R_WARN("auto-CAD: channel busy after retries, abort TX");
@@ -933,6 +977,9 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 break;
             }
         }
+
+        radio.standby();
+        delay(1);
 
         // If the operator enabled the V4.3 external RX LNA, it must be
         // treated as an RX-only state. Restore CTX HIGH before TX so the
