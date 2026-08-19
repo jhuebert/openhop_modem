@@ -912,6 +912,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             sendError(ERR_PAYLOAD_TOO_BIG, src);
             break;
         }
+        // Reception guard, independent of auto-CAD: a frame being received
+        // is authoritative — refuse rather than trample it. The radio stays
+        // untouched (standby or startReceive() here would abort the frame);
+        // its terminal IRQ delivers it to the host, and the host retries the
+        // TX within its LBT budget on ERR_CHANNEL_BUSY.
+        if (isReceivingPacket()) {
+            sendError(ERR_CHANNEL_BUSY, src);
+            break;
+        }
         // v0.5.7: non-blocking TX with our own timeout.
         // The previous radio.transmit() was synchronous and could wait
         // indefinitely when SX1262 lost the TX_DONE IRQ (observed after CAD
