@@ -273,26 +273,53 @@ static uint8_t cadExitMode = 0x00;  // RADIOLIB_SX126X_CAD_GOTO_STDBY
 // reception the RX path never got to consume — from wedging TX forever,
 // like MeshCore's _maxPayloadMillis.
 static uint32_t rxActivityAt = 0;
+static bool     rxHeaderSeen = false;
 
+// True while the chip reports a reception in progress. The live IRQ flags
+// are the source of truth (MeshCore CustomSX1262::isReceiving), and each
+// stage carries its own staleness bound so a stray flag cannot hold TX off:
+// a lone preamble must turn into a valid header within about one preamble +
+// header airtime, a valid header into a frame within a worst-case payload
+// airtime.
 static bool isReceivingPacket() {
     uint32_t irq = radio.getIrqFlags();
-    bool active = (irq & (RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
-                          RADIOLIB_SX126X_IRQ_HEADER_VALID)) != 0;
-    if (!active) {
-        rxActivityAt = 0;
-        return false;
-    }
+    bool header   = (irq & RADIOLIB_SX126X_IRQ_HEADER_VALID) != 0;
+    bool preamble = (irq & RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED) != 0;
     uint32_t now = millis();
-    if (rxActivityAt == 0) rxActivityAt = now;
-    // Worst-case airtime of a max-size frame at current settings, padded 50%.
-    uint32_t maxMs = (uint32_t)(radio.getTimeOnAir(MAX_LORA_PAYLOAD) / 1000) * 3 / 2 + 100;
-    if (now - rxActivityAt > maxMs) {
-        radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
-                            RADIOLIB_SX126X_IRQ_HEADER_VALID);
+
+    if (!header && rxHeaderSeen) {
+        // The header flag went away without us clearing it: the frame ended
+        // or was aborted, and the state must follow the chip.
         rxActivityAt = 0;
+        rxHeaderSeen = false;
         return false;
     }
-    return true;
+    if (header) {
+        if (!rxHeaderSeen) { rxHeaderSeen = true; rxActivityAt = now; }
+        // Worst-case airtime of a max-size frame at current settings, padded 50%.
+        uint32_t maxMs = (uint32_t)(radio.getTimeOnAir(MAX_LORA_PAYLOAD) / 1000) * 3 / 2 + 100;
+        if (now - rxActivityAt > maxMs) {
+            radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+                                RADIOLIB_SX126X_IRQ_HEADER_VALID);
+            rxActivityAt = 0;
+            rxHeaderSeen = false;
+            return false;
+        }
+        return true;
+    }
+    if (preamble) {
+        if (rxActivityAt == 0) rxActivityAt = now;
+        uint32_t preMs = (uint32_t)(radio.getTimeOnAir(1) / 1000) * 3 / 2 + 100;
+        if (now - rxActivityAt > preMs) {
+            radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
+            rxActivityAt = 0;
+            return false;
+        }
+        return true;
+    }
+    rxActivityAt = 0;
+    rxHeaderSeen = false;
+    return false;
 }
 
 // ─── Transport state ─────────────────────────────────────────
