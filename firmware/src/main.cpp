@@ -1049,6 +1049,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
     }
 
     case CMD_CAD_REQUEST: {
+        // Passive guard first: a reception in progress IS a busy verdict,
+        // and the standby below would abort the very frame this request is
+        // probing for. Answer busy without touching the radio — the frame's
+        // terminal IRQ will deliver it to the host.
+        if (isReceivingPacket()) {
+            uint8_t result[1] = {1};
+            sendFrame(CMD_CAD_RESP, result, 1, src);
+            break;
+        }
         // v0.5.8: non-blocking CAD with our own timeout.
         // The previous radio.scanChannel() was synchronous and would block
         // until CAD_DONE IRQ arrived. When SX1262 dropped that IRQ (first
@@ -1118,6 +1127,10 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             break;
         }
         sendFrame(CMD_CAD_RESP, result, 1, src);
+        // Back to RX right away: the scan parked the radio in standby, and
+        // the host probes every ~200 ms for its whole LBT budget — without
+        // this the modem is deaf between probes, so it can neither receive
+        // the traffic it is deferring to nor arm the passive guard above.
         startReceive();
         break;
     }
