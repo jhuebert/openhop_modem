@@ -28,35 +28,35 @@
 #pragma once
 
 // W5100S / RAK13800 wiring on WisBlock IO slot.
-#ifndef PYMC_ETH_POWER_PIN
-#  define PYMC_ETH_POWER_PIN 34   // WB_IO2 — RAK13800 power enable
+#ifndef OPENHOP_ETH_POWER_PIN
+#  define OPENHOP_ETH_POWER_PIN 34   // WB_IO2 — RAK13800 power enable
 #endif
-#ifndef PYMC_ETH_RESET_PIN
-#  define PYMC_ETH_RESET_PIN 21   // WB_IO3 — RAK13800 W5100S reset
+#ifndef OPENHOP_ETH_RESET_PIN
+#  define OPENHOP_ETH_RESET_PIN 21   // WB_IO3 — RAK13800 W5100S reset
 #endif
-#ifndef PYMC_ETH_CS_PIN
-#  define PYMC_ETH_CS_PIN 26      // WB_SPI_CS / SS
+#ifndef OPENHOP_ETH_CS_PIN
+#  define OPENHOP_ETH_CS_PIN 26      // WB_SPI_CS / SS
 #endif
-#ifndef PYMC_ETH_INT_PIN
-#  define PYMC_ETH_INT_PIN 10     // WB_IO6 / RAK13800 INTn, currently unused
+#ifndef OPENHOP_ETH_INT_PIN
+#  define OPENHOP_ETH_INT_PIN 10     // WB_IO6 / RAK13800 INTn, currently unused
 #endif
-#ifndef PYMC_ETH_SPI_SCK
-#  define PYMC_ETH_SPI_SCK 3      // WB_SPI_CLK
+#ifndef OPENHOP_ETH_SPI_SCK
+#  define OPENHOP_ETH_SPI_SCK 3      // WB_SPI_CLK
 #endif
-#ifndef PYMC_ETH_SPI_MISO
-#  define PYMC_ETH_SPI_MISO 29    // WB_SPI_MISO
+#ifndef OPENHOP_ETH_SPI_MISO
+#  define OPENHOP_ETH_SPI_MISO 29    // WB_SPI_MISO
 #endif
-#ifndef PYMC_ETH_SPI_MOSI
-#  define PYMC_ETH_SPI_MOSI 30    // WB_SPI_MOSI
+#ifndef OPENHOP_ETH_SPI_MOSI
+#  define OPENHOP_ETH_SPI_MOSI 30    // WB_SPI_MOSI
 #endif
-#ifndef PYMC_RAK4631_SX126X_POWER_EN
-#  define PYMC_RAK4631_SX126X_POWER_EN 37  // P1.05 — RAK4631 SX1262 power enable
+#ifndef OPENHOP_RAK4631_SX126X_POWER_EN
+#  define OPENHOP_RAK4631_SX126X_POWER_EN 37  // P1.05 — RAK4631 SX1262 power enable
 #endif
 
 inline const BoardConfig BOARD = {
     "RAK4631 WisMesh Ethernet",
     "rak4631_wismesh_eth",
-    "pymc-raketh",
+    "openhop-raketh",
 
     // SX1262 internal LoRa bus/control pins.
     42,  // pin_lora_nss  = P1.10
@@ -133,6 +133,6 @@ inline const BoardConfig BOARD = {
     // Official MeshCore RAK4631 firmware drives SX126X_POWER_EN high before
     // radio init. Keep that as a fixed board GPIO rather than overloading the
     // RF-switch EN delay path.
-    {{PYMC_RAK4631_SX126X_POWER_EN, true}, {-1, false}, {-1, false}, {-1, false}},
+    {{OPENHOP_RAK4631_SX126X_POWER_EN, true}, {-1, false}, {-1, false}, {-1, false}},
     1,
 };

@@ -1,7 +1,7 @@
 // =============================================================
 // net_filter.h — LAN-only access policy shared by TCP server + OTA.
 //
-// The firmware is intended for local pymc_repeater control. It is
+// The firmware is intended for local openHop Repeater control. It is
 // not designed to bridge LoRa traffic over the public Internet, and
 // every TCP-facing surface (the protocol server on 5055 and the OTA
 // HTTP listener on 80) refuses connections whose source address is

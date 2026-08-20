@@ -2,8 +2,8 @@
   Product-specific openHop Modem variant for the RAK4631 WisMesh Ethernet Gateway.
   Based on RAKWireless/RAK-nRF52-Arduino variants/WisCore_RAK4631_Board.
 */
-#ifndef _VARIANT_RAK4631_PYMC_
-#define _VARIANT_RAK4631_PYMC_
+#ifndef _VARIANT_RAK4631_OPENHOP_
+#define _VARIANT_RAK4631_OPENHOP_
 
 #define RAK4631
 #define VARIANT_MCK (64000000ul)

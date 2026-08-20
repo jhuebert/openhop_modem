@@ -1,6 +1,6 @@
-# openHop Modem (`pymc_modem`) — USB/TCP LoRa modem for openHop Core
+# openHop Modem — USB/TCP LoRa modem for openHop Core
 
-Firmware + Python driver that turns a supported ESP32 or nRF52 board
+Firmware that turns a supported ESP32 or nRF52 board
 with an SX1262 front end into a "dumb" LoRa modem controlled from a
 Raspberry Pi over USB-CDC, Wi-Fi/TCP, or (on boards with native
 Ethernet) wired LAN.
@@ -59,31 +59,27 @@ Raspberry Pi                                  openHop Modem
   (`openHop-Modem-XXXX` → `http://192.168.4.1`), USB, or their web UI; the TCP
   token defaults blank/open on fresh firmware and can be set from the web UI on
   web-enabled builds. The RAK4631 Ethernet variant has no web UI/HTTP stack, so
-  its W5100S TCP defaults live in `PYMC_ETH_*` build flags.
+  its W5100S TCP defaults live in `OPENHOP_ETH_*` build flags.
 
 ## Project layout
 
-- **`firmware/`** — PlatformIO tree, seventeen envs sharing one source.
+- **`firmware/`** — PlatformIO tree, eighteen environments sharing one source.
   Each board lives in `include/boards/<env>.h`; `platformio.ini` picks
   one via `-DBOARD_<NAME>`. Prebuilt artifacts (ESP32: combined
   `firmware.factory.bin` plus `bootloader.bin / partitions.bin / firmware.bin`;
-  nRF52: `firmware.hex` +
-  Adafruit DFU `firmware.zip`) live in `firmware/<env>/`.
-- **`pymc_driver/`** — repo-local Python probe/debug helpers and shared
-  protocol constants. Repeater and openHop Core already include the modem
-  drivers; these files are no longer something users copy into Repeater.
-- **`patches/`** and **`scripts/install.sh`** — legacy/reference material for
-  old pre-integration Repeater/Core installs. Current Repeater releases do
-  not need these side-loaded.
-- **`docker/`** + `docker-compose.yml` — Linux container running
-  Repeater that talks to the modem over LAN-TCP by default.
+  nRF52: `firmware.hex`, Adafruit DFU `firmware.zip`, and UF2 where supported)
+  live in `firmware/<env>/`.
+- **`.github/workflows/`** — firmware validation, asset staging, and release
+  packaging. Repeater packaging and modem transport drivers live in the
+  openHop Repeater and openHop Core repositories, not here.
 
 ## Installation
 
 Flash supported boards from the browser at <https://flasher.openhop.dev/>.
 [INSTALL.md](INSTALL.md) also covers local esptool/PlatformIO flashing,
-network OTA, Wi-Fi provisioning, and selecting the built-in `pymc_usb` /
-`pymc_tcp` radio types in Repeater. No Repeater side-loading is required.
+network OTA, Wi-Fi provisioning, and selecting the built-in `modem_usb` or
+`modem_tcp` transport in openHop Repeater. No driver copying, Repeater patching,
+or modem-specific container image is required.
 
 ## Firmware asset builds
 
@@ -120,7 +116,7 @@ Per-board highlights (full pin numbers in the headers, mDNS prefix is
 - **Station G3** — BQESP32V1M N16R8 (16 MB flash + 8 MB octal PSRAM) + BQ35LORA900V1M, Station G2-compatible radio/display pins, persistent Station G3-only web/API selection of lower or higher PA PL1 mode on GPIO9 (lower by default), persistent RX-only external LNA enable/bypass on GPIO10, onboard INA219 input-voltage/current/power telemetry with since-boot minimum voltage and maximum current, optional GROVE GPS on IO7/IO15, and max SX1262 drive capped at 19 dBm. The LNA is always bypassed before TX. Remove the PA PL1/LNA P jumpers for software GPIO control; PA PL2 remains a physical jumper.
 - **WaveShare ESP32-P4-Nano** — RISC-V P4 + C6 + IP101GRI Ethernet PHY + off-board E22, runtime ETH-or-Wi-Fi (never both, see below).
 - **Heltec T114** — nRF52840 + bare SX1262 + ST7789 TFT 135×240, **no Wi-Fi/TCP/network OTA**; USB-CDC + UART transport only, OTA via Adafruit nRF52 DFU (USB) or in-app `CMD_OTA_*` over the protocol transport.
-- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, no Wi-Fi, and no network OTA (flash via USB/DFU). The TCP server on port 5055 is the primary transport; USB-CDC is available as a fallback. The TCP token defaults blank/open, matching other fresh network firmware. On web-enabled ESP32 builds the token can be changed in the device web UI; this nRF52 Ethernet-only target has no web UI/HTTP stack, so its W5100S TCP token, port, and hostname are currently set by `PYMC_ETH_*` build flags. The hostname is stored for status reporting only — the W5100S library does not support DHCP option 12. Commands that persist state (standby, auto-CAD, display name) are accepted but volatile — there is no LittleFS/NodeState on this target, so they reset on reboot. Display commands (SET_DISPLAY_NAME) succeed as no-op stubs.
+- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, no Wi-Fi, and no network OTA (flash via USB/DFU). The TCP server on port 5055 is the primary transport; USB-CDC is available as a fallback. The TCP token defaults blank/open, matching other fresh network firmware. On web-enabled ESP32 builds the token can be changed in the device web UI; this nRF52 Ethernet-only target has no web UI/HTTP stack, so its W5100S TCP token, port, and hostname are currently set by `OPENHOP_ETH_*` build flags. The hostname is stored for status reporting only — the W5100S library does not support DHCP option 12. Commands that persist state (standby, auto-CAD, display name) are accepted but volatile — there is no LittleFS/NodeState on this target, so they reset on reboot. Display commands (SET_DISPLAY_NAME) succeed as no-op stubs.
 - **Seeed XIAO nRF52840 + Wio-SX1262** (SKU 102010710) — XIAO nRF52840 + bare SX1262 on the Wio-SX1262 carrier, BLE 5.0 hardware unused, **no Wi-Fi/TCP/network OTA**, no display; native USB-CDC transport only, OTA via Adafruit nRF52 DFU (UF2 disk on double-click reset) or in-app `CMD_OTA_*`.
 
 ### E22P RF switch (Ikoka, P4-Nano + E22P)

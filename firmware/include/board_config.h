@@ -172,7 +172,7 @@ struct BoardConfig {
     // module is added later. When false, main.cpp / wifi_manager skip
     // every radio code path: no SX1262 init, no SET_CONFIG, no CAD,
     // no RX worker. CMD_GET_CONFIG / CMD_STATUS still answer with
-    // current cached state so pymc_repeater can probe the modem.
+    // current cached state so openHop Repeater can probe the modem.
     bool has_lora_radio;
 
     // ESP32-P4 has no native Wi-Fi/BT — it relies on an ESP32-C6

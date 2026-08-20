@@ -2,7 +2,7 @@
 // splash_logo.h — openHop boot splash bitmap
 //
 // 64x64 1-bpp bitmap, MSB-first per row (Adafruit_GFX::drawBitmap
-// format). Source: openHop logo from pyMC-RepeaterUI
+// format). Source: openHop logo from openHop RepeaterUI
 // src/assets/logo/openhop_transparent_trim.png, converted with
 // ImageMagick to a monochrome OLED/TFT splash. Stored in flash via
 // PROGMEM so the 512 bytes don't occupy RAM.

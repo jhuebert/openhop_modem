@@ -110,7 +110,7 @@ Example:
   "dns1": "1.1.1.1",
   "dns2": "8.8.8.8",
   "tcp_port": 5055,
-  "pymc_token_set": true,
+  "token_set": true,
   "saved": {
     "static_ip": "192.168.1.42",
     "subnet": "255.255.255.0",
