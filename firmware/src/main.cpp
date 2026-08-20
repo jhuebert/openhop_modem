@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <RadioLib.h>
 #include <stdarg.h>
+#include "legacy_rak4631_build_flags.h"
 #include "protocol.h"
 #include "board_config.h"
 #include "frame_parser.h"

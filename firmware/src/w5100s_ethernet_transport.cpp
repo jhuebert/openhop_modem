@@ -7,6 +7,8 @@
 // binary frame format, same TransportSource::TCP command path.
 // =============================================================
 
+#include "legacy_rak4631_build_flags.h"
+
 #if defined(OPENHOP_ETHERNET_W5100S)
 
 #include "w5100s_ethernet_transport.h"

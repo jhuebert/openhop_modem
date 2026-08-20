@@ -225,13 +225,20 @@ source addresses, but that is not a substitute for local authentication.
 
 Wired targets use DHCP unless their board configuration says otherwise. The
 RAK4631/W5100S target has no mDNS or HTTP management stack; find its address in
-the DHCP lease table and configure its TCP defaults at build time.
+the DHCP lease table and configure its TCP defaults at build time with the
+canonical `OPENHOP_ETH_*` flags. Older `PYMC_ETH_*` overrides remain accepted
+as compatibility aliases so existing custom builds do not silently lose their
+TCP token or hardware policy; when both forms are supplied, `OPENHOP_ETH_*`
+wins.
 
 ## 4. Configure openHop Repeater
 
-Current openHop Repeater and openHop Core releases contain the USB and TCP modem
-drivers. Do not copy drivers from this repository or patch an installed Repeater.
-Use the Repeater setup wizard, or configure one of the canonical transports.
+openHop Repeater and openHop Core contain the USB and TCP modem drivers. The
+canonical `modem_usb` / `modem_tcp` names require the coordinated Repeater/Core
+transport-naming release; deploy that migration before using these examples.
+Upgrade older Repeater installations rather than copying drivers from this
+repository or patching an installed service. Use the Repeater setup wizard, or
+configure one of the canonical transports.
 
 TCP example:
 
