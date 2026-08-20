@@ -17,6 +17,7 @@
 #include "frame_parser.h"
 #include "compat.h"
 #include "rf_frontend.h"
+#include "station_g3_power.h"
 #if defined(BOARD_HELTEC_T114)
 #  include "node_state.h"
 #endif
@@ -403,6 +404,14 @@ Snapshot capture() {
         snap.batteryChargeRatePctPerHourValid = readBatteryChargeRatePctPerHour(
             snap.batteryChargeRatePctPerHour);
     }
+    StationG3Power::Snapshot power = StationG3Power::snapshot();
+    snap.stationG3PowerMonitorAvailable = power.available;
+    snap.stationG3PowerValid = power.valid;
+    snap.stationG3InputVoltageV = power.inputVoltageV;
+    snap.stationG3CurrentMa = power.currentMa;
+    snap.stationG3PowerW = power.powerW;
+    snap.stationG3MinimumInputVoltageV = power.minimumInputVoltageV;
+    snap.stationG3MaximumCurrentMa = power.maximumCurrentMa;
     return snap;
 }
 }
@@ -1060,6 +1069,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             break;
         }
         sendFrame(CMD_CAD_RESP, result, 1, src);
+        startReceive();
         break;
     }
 
@@ -1237,6 +1247,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         break;
     }
     case CMD_RADIO_STANDBY: {
+        RFFrontEnd::prepareStandby();
         radio.standby();
         radioStandby = true;
         oled.setStandby(true);
@@ -1442,6 +1453,7 @@ void setup() {
     // proceeds in the background. We just record when it went up;
     // the wait-until-elapsed happens at the end of setup().
     oled.begin();
+    StationG3Power::begin();
 #if defined(BOARD_HELTEC_T114)
     // Push restored state onto the OLED before showSplash so the
     // boot screen already has the right name + standby tag.
@@ -1752,6 +1764,9 @@ void loop() {
     maybeResetAgc();
     if (BOARD.has_wifi) WifiManager::loop();
     EthernetManager::loop();
+    // Low-priority I2C telemetry runs only after radio IRQs and all host
+    // transports have been drained for this iteration.
+    StationG3Power::loop();
 
     // Lazy TCP + OTA start if STA or Ethernet came up after boot.
     bool netUp = WifiManager::isSTAConnected() || EthernetManager::hasIP();

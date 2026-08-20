@@ -244,10 +244,10 @@ static bool attemptSTA() {
                   cfg.tcpToken.length() > 0 ? "token" : "open");
 
     WiFi.persistent(false);   // we manage persistence via Preferences
-#if defined(BOARD_STATION_G2)
-    // Station G2's high-power radio/TCP use case benefits from avoiding
+#if defined(BOARD_STATION_G2) || defined(BOARD_STATION_G3)
+    // Station G2/G3's high-power radio/TCP use case benefits from avoiding
     // modem latency caused by Wi-Fi power-save sleep. Keep this scoped to
-    // Station G2 until other boards are explicitly validated with it.
+    // Station hardware until other boards are explicitly validated with it.
     WiFi.setSleep(false);
 #endif
     WiFi.setAutoReconnect(true);

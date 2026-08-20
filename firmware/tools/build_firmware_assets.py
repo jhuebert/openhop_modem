@@ -85,6 +85,11 @@ ENV_METADATA: dict[str, dict[str, str | bool]] = {
         "chip_family": "ESP32-S3",
         "web_manifest": True,
     },
+    "station_g3": {
+        "name": "BQ Voyage Station G3 openHop Modem",
+        "chip_family": "ESP32-S3",
+        "web_manifest": True,
+    },
     "esp32_p4_nano": {
         "name": "WaveShare ESP32-P4-Nano openHop Modem",
         "chip_family": "ESP32-P4",
@@ -136,6 +141,7 @@ BOARD_HEADER_TO_ENV = {
     "firmware/include/boards/photon_1w_xiao_esp32c6.h": "photon_1w_xiao_esp32c6",
     "firmware/include/boards/rak3112_wismesh.h": "rak3112_wismesh",
     "firmware/include/boards/station_g2.h": "station_g2",
+    "firmware/include/boards/station_g3.h": "station_g3",
     "firmware/include/boards/esp32_p4_nano.h": "esp32_p4_nano",
     "firmware/include/boards/ethermesh_1w.h": "ethermesh_1w",
     "firmware/include/boards/lilygo_t3s3.h": "lilygo_t3s3",

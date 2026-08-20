@@ -279,6 +279,25 @@ static String buildSystemJson(const RuntimeStats::Snapshot& snap,
                     ? String(snap.batteryChargeRatePctPerHour, 3)
                     : String("null");
     }
+    if (RFFrontEnd::hasStationG3LnaControl()) {
+        body += F(",\"station_g3_power_monitor_available\":");
+        body += boolJson(snap.stationG3PowerMonitorAvailable);
+        body += F(",\"station_g3_input_voltage_v\":");
+        body += snap.stationG3PowerMonitorAvailable && snap.stationG3PowerValid
+                    ? String(snap.stationG3InputVoltageV, 3) : String("null");
+        body += F(",\"station_g3_current_ma\":");
+        body += snap.stationG3PowerMonitorAvailable && snap.stationG3PowerValid
+                    ? String(snap.stationG3CurrentMa, 1) : String("null");
+        body += F(",\"station_g3_power_w\":");
+        body += snap.stationG3PowerMonitorAvailable && snap.stationG3PowerValid
+                    ? String(snap.stationG3PowerW, 3) : String("null");
+        body += F(",\"station_g3_minimum_input_voltage_v\":");
+        body += snap.stationG3PowerMonitorAvailable && snap.stationG3PowerValid
+                    ? String(snap.stationG3MinimumInputVoltageV, 3) : String("null");
+        body += F(",\"station_g3_maximum_current_ma\":");
+        body += snap.stationG3PowerMonitorAvailable && snap.stationG3PowerValid
+                    ? String(snap.stationG3MaximumCurrentMa, 1) : String("null");
+    }
     body += F("}");
     return body;
 }
@@ -312,6 +331,14 @@ static String buildRadioJson(const RuntimeStats::Snapshot& snap) {
     body += String(snap.radio.syncword);
     body += F(",\"preamble_len\":");
     body += String(snap.radio.preamble_len);
+    if (RFFrontEnd::hasPaModeControl()) {
+        body += F(",\"pa_high_power_enabled\":");
+        body += boolJson(RFFrontEnd::isPaHighPowerEnabled());
+    }
+    if (RFFrontEnd::hasStationG3LnaControl()) {
+        body += F(",\"station_g3_external_lna_enabled\":");
+        body += boolJson(RFFrontEnd::isStationG3LnaEnabled());
+    }
     if (RFFrontEnd::hasHeltecV43LnaControl()) {
         body += F(",\"heltec_v43_external_lna_enabled\":");
         body += boolJson(RFFrontEnd::isExternalLnaEnabled());
@@ -423,6 +450,14 @@ static String buildConfigJson(const WifiManager::Config& cfg) {
         body += F(",\"agc_reset_interval_sec\":");
         body += String(RFFrontEnd::getAgcResetIntervalSec());
     }
+    if (RFFrontEnd::hasPaModeControl()) {
+        body += F(",\"pa_high_power_enabled\":");
+        body += boolJson(RFFrontEnd::isPaHighPowerEnabled());
+    }
+    if (RFFrontEnd::hasStationG3LnaControl()) {
+        body += F(",\"station_g3_external_lna_enabled\":");
+        body += boolJson(RFFrontEnd::isStationG3LnaEnabled());
+    }
     body += F(",\"gps_enabled\":");
     body += boolJson(cfg.gpsEnabled);
     body += F(",\"gps_available\":");
@@ -483,7 +518,21 @@ static bool parseJsonIp(JsonVariantConst value, IPAddress& ip, const char* field
     return true;
 }
 
-static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, String& error) {
+struct RfConfigPatch {
+    bool hasPaHighPower = false;
+    bool paHighPowerEnabled = false;
+    bool hasStationG3Lna = false;
+    bool stationG3LnaEnabled = true;
+    bool hasExternalLna = false;
+    bool externalLnaEnabled = false;
+    bool hasAgcResetInterval = false;
+    uint16_t agcResetIntervalSec = 0;
+};
+
+static bool applyConfigPatch(JsonVariantConst root,
+                             WifiManager::Config& cfg,
+                             RfConfigPatch& rfPatch,
+                             String& error) {
     if (!root.is<JsonObjectConst>()) {
         error = "JSON body must be an object.";
         return false;
@@ -562,6 +611,34 @@ static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, St
         cfg.gpsEnabled = gpsVal.as<bool>();
     }
 
+    JsonVariantConst paVal = obj["pa_high_power_enabled"];
+    if (!paVal.isNull()) {
+        if (!RFFrontEnd::hasPaModeControl()) {
+            error = "PA mode control is not supported on this board.";
+            return false;
+        }
+        if (!paVal.is<bool>()) {
+            error = "pa_high_power_enabled must be true or false.";
+            return false;
+        }
+        rfPatch.hasPaHighPower = true;
+        rfPatch.paHighPowerEnabled = paVal.as<bool>();
+    }
+
+    JsonVariantConst stationG3LnaVal = obj["station_g3_external_lna_enabled"];
+    if (!stationG3LnaVal.isNull()) {
+        if (!RFFrontEnd::hasStationG3LnaControl()) {
+            error = "Station G3 external LNA control is not supported on this board.";
+            return false;
+        }
+        if (!stationG3LnaVal.is<bool>()) {
+            error = "station_g3_external_lna_enabled must be true or false.";
+            return false;
+        }
+        rfPatch.hasStationG3Lna = true;
+        rfPatch.stationG3LnaEnabled = stationG3LnaVal.as<bool>();
+    }
+
     JsonVariantConst lnaVal = obj["heltec_v43_external_lna_enabled"];
     if (!lnaVal.isNull()) {
         if (!RFFrontEnd::hasHeltecV43LnaControl()) {
@@ -572,10 +649,8 @@ static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, St
             error = "heltec_v43_external_lna_enabled must be true or false.";
             return false;
         }
-        if (!RFFrontEnd::setFemLnaBypassed(!lnaVal.as<bool>(), true)) {
-            error = "failed to save Heltec V4.3 LNA setting.";
-            return false;
-        }
+        rfPatch.hasExternalLna = true;
+        rfPatch.externalLnaEnabled = lnaVal.as<bool>();
     }
 
     JsonVariantConst agcVal = obj["agc_reset_interval_sec"];
@@ -593,10 +668,8 @@ static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, St
             error = "agc_reset_interval_sec must be between 0 and 3600.";
             return false;
         }
-        if (!RFFrontEnd::setAgcResetIntervalSec((uint16_t)sec, true)) {
-            error = "failed to save agc.reset.interval setting.";
-            return false;
-        }
+        rfPatch.hasAgcResetInterval = true;
+        rfPatch.agcResetIntervalSec = (uint16_t)sec;
     }
 
     JsonVariantConst networkVal = obj["network"];
@@ -645,10 +718,8 @@ static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, St
                 error = "network.heltec_v43_external_lna_enabled must be true or false.";
                 return false;
             }
-            if (!RFFrontEnd::setFemLnaBypassed(!lnaVal.as<bool>(), true)) {
-                error = "failed to save Heltec V4.3 LNA setting.";
-                return false;
-            }
+            rfPatch.hasExternalLna = true;
+            rfPatch.externalLnaEnabled = lnaVal.as<bool>();
         }
 
         JsonVariantConst agcVal = network["agc_reset_interval_sec"];
@@ -666,10 +737,8 @@ static bool applyConfigPatch(JsonVariantConst root, WifiManager::Config& cfg, St
                 error = "network.agc_reset_interval_sec must be between 0 and 3600.";
                 return false;
             }
-            if (!RFFrontEnd::setAgcResetIntervalSec((uint16_t)sec, true)) {
-                error = "failed to save agc.reset.interval setting.";
-                return false;
-            }
+            rfPatch.hasAgcResetInterval = true;
+            rfPatch.agcResetIntervalSec = (uint16_t)sec;
         }
     }
 
@@ -841,6 +910,21 @@ static void handleRoot() {
                   "</form><p class='m'>Settings apply immediately and persist across reboots. Unchecked LNA = GPIO5/CTX HIGH, external LNA bypassed.</p></div></details>");
     }
 
+    if (RFFrontEnd::hasPaModeControl() && RFFrontEnd::hasStationG3LnaControl()) {
+        body += F("<details open><summary>Station G3 RF Front-End</summary><div class='inside'>"
+                  "<p>Configure the Station G3 PA level on GPIO9 and receive-only external LNA on GPIO10.</p>"
+                  "<form method='POST' action='/rf-pa'>"
+                  "<div class='checkline'><input type='checkbox' id='g3_pa_high' name='g3_pa_high' value='1'");
+        if (RFFrontEnd::isPaHighPowerEnabled()) body += F(" checked");
+        body += F("><label for='g3_pa_high'>Enable higher PA mode</label></div>"
+                  "<div class='checkline'><input type='checkbox' id='g3_lna_on' name='g3_lna_on' value='1'");
+        if (RFFrontEnd::isStationG3LnaEnabled()) body += F(" checked");
+        body += F("><label for='g3_lna_on'>Enable Station G3 external RX LNA</label></div>"
+                  "<button type='submit'>Save RF front-end settings</button>"
+                  "</form><p class='m'>The external LNA is receive-only and is always bypassed before transmit. Disable it when local RF noise reduces SNR.</p>"
+                  "<p class='m'><strong>RF safety:</strong> remove the PA PL1 and LNA P jumpers for GPIO control. PA PL2 remains a physical jumper. Higher PA mode can produce substantially more antenna power; use a suitable antenna/load and comply with regional limits. The lower PA mode is the default.</p></div></details>");
+    }
+
     if (GPSManager::hasGpsPins()) {
         body += F("<details open><summary>GPS</summary><div class='inside'>"
                   "<p>Turn the onboard GPS receiver interface on only when location data is needed. Default is off to save battery.</p>"
@@ -958,6 +1042,14 @@ static void handleStats() {
     body += "<div class='kv'><span class='k'>Syncword</span><span class='v'>0x" + String(snap.radio.syncword, HEX) + "</span></div>";
     body += "<div class='kv'><span class='k'>Preamble</span><span class='v'>" + String(snap.radio.preamble_len) + "</span></div>";
     body += "<div class='kv'><span class='k'>Auto CAD</span><span class='v'>" + String(snap.autoCadEnabled ? "On" : "Off") + "</span></div>";
+    if (RFFrontEnd::hasPaModeControl()) {
+        body += "<div class='kv'><span class='k'>Station G3 PA mode</span><span class='v'>" +
+                String(RFFrontEnd::isPaHighPowerEnabled() ? "Higher" : "Lower") + "</span></div>";
+    }
+    if (RFFrontEnd::hasStationG3LnaControl()) {
+        body += "<div class='kv'><span class='k'>Station G3 external RX LNA</span><span class='v'>" +
+                String(RFFrontEnd::isStationG3LnaEnabled() ? "Enabled" : "Bypassed") + "</span></div>";
+    }
     body += "</div>";
 
     body += F("<h3>Counters</h3><div class='grid'>");
@@ -969,6 +1061,24 @@ static void handleStats() {
     body += "<div class='kv'><span class='k'>Noise floor</span><span class='v'>" + String(snap.status.noise_floor_x10 / 10.0f, 1) + " dBm</span></div>";
     body += "<div class='kv'><span class='k'>Die temperature</span><span class='v'>" + String(snap.status.temp_c) + " C</span></div>";
     body += "</div>";
+
+    if (RFFrontEnd::hasStationG3LnaControl()) {
+        body += F("<h3>Station G3 Power</h3><div class='grid'>");
+        body += "<div class='kv'><span class='k'>INA219 monitor</span><span class='v'>" +
+                String(snap.stationG3PowerMonitorAvailable ? "Detected" : "Not detected") + "</span></div>";
+        if (snap.stationG3PowerMonitorAvailable) {
+            String readingState = snap.stationG3PowerValid ? String("Current") : String("Read error");
+            body += "<div class='kv'><span class='k'>Reading state</span><span class='v'>" + readingState + "</span></div>";
+            if (snap.stationG3PowerValid) {
+                body += "<div class='kv'><span class='k'>Input voltage</span><span class='v'>" + String(snap.stationG3InputVoltageV, 3) + " V</span></div>";
+                body += "<div class='kv'><span class='k'>Current</span><span class='v'>" + String(snap.stationG3CurrentMa, 1) + " mA</span></div>";
+                body += "<div class='kv'><span class='k'>Power</span><span class='v'>" + String(snap.stationG3PowerW, 3) + " W</span></div>";
+                body += "<div class='kv'><span class='k'>Minimum input voltage</span><span class='v'>" + String(snap.stationG3MinimumInputVoltageV, 3) + " V</span></div>";
+                body += "<div class='kv'><span class='k'>Maximum current</span><span class='v'>" + String(snap.stationG3MaximumCurrentMa, 1) + " mA</span></div>";
+            }
+        }
+        body += "</div>";
+    }
 
     body += F("<h3>Network</h3><div class='grid'>");
     body += "<div class='kv'><span class='k'>Mode</span><span class='v'>" + String(cfg.useStaticIP ? "Static" : "DHCP") + "</span></div>";
@@ -1077,9 +1187,33 @@ static void handleApiConfigPost() {
     }
 
     WifiManager::Config cfg = WifiManager::getConfig();
+    RfConfigPatch rfPatch;
     String error;
-    if (!applyConfigPatch(doc.as<JsonVariantConst>(), cfg, error)) {
+    if (!applyConfigPatch(doc.as<JsonVariantConst>(), cfg, rfPatch, error)) {
         sendJsonError(400, error);
+        return;
+    }
+
+    if (rfPatch.hasPaHighPower || rfPatch.hasStationG3Lna) {
+        bool paHighPower = rfPatch.hasPaHighPower
+                               ? rfPatch.paHighPowerEnabled
+                               : RFFrontEnd::isPaHighPowerEnabled();
+        bool lnaEnabled = rfPatch.hasStationG3Lna
+                              ? rfPatch.stationG3LnaEnabled
+                              : RFFrontEnd::isStationG3LnaEnabled();
+        if (!RFFrontEnd::setStationG3RfConfig(paHighPower, lnaEnabled, true)) {
+            sendJsonError(500, "Failed to save Station G3 RF front-end settings.");
+            return;
+        }
+    }
+    if (rfPatch.hasExternalLna &&
+        !RFFrontEnd::setFemLnaBypassed(!rfPatch.externalLnaEnabled, true)) {
+        sendJsonError(500, "Failed to save Heltec V4.3 LNA setting.");
+        return;
+    }
+    if (rfPatch.hasAgcResetInterval &&
+        !RFFrontEnd::setAgcResetIntervalSec(rfPatch.agcResetIntervalSec, true)) {
+        sendJsonError(500, "Failed to save agc.reset.interval setting.");
         return;
     }
 
@@ -1245,6 +1379,34 @@ static void handleRfLnaSave() {
     detail += String(F(" agc.reset.interval is ")) + String(agcIntervalSec) + F(" seconds (0 disables). Settings persist across reboots.");
     sendSimplePage(enableExternalLna ? F("RF settings saved") : F("RF settings saved"),
                    F("RF settings saved"), detail);
+}
+
+static void handleRfPaSave() {
+    if (!checkAuth()) return;
+
+    if (!RFFrontEnd::hasPaModeControl() || !RFFrontEnd::hasStationG3LnaControl()) {
+        httpServer->send(400, "text/plain", "Station G3 RF front-end control is not supported on this board.\n");
+        return;
+    }
+
+    bool highPower = httpServer->hasArg("g3_pa_high");
+    bool enableExternalLna = httpServer->hasArg("g3_lna_on");
+    if (!RFFrontEnd::setStationG3RfConfig(highPower, enableExternalLna, true)) {
+        httpServer->send(500, "text/plain", "Failed to save Station G3 RF front-end settings.\n");
+        return;
+    }
+
+    Serial.printf("[OTA] Station G3 PA mode %s, external RX LNA %s by %s\n",
+                  highPower ? "higher" : "lower",
+                  enableExternalLna ? "enabled" : "bypassed",
+                  httpServer->client().remoteIP().toString().c_str());
+    String detail = highPower
+        ? F("Higher PA mode is enabled and saved. Verify the PA PL1 jumper is removed and observe RF power limits.")
+        : F("Lower PA mode is enabled and saved.");
+    detail += enableExternalLna
+        ? F(" The Station G3 external RX LNA is enabled; transmit will bypass it automatically.")
+        : F(" The Station G3 external RX LNA is bypassed.");
+    sendSimplePage(F("RF settings saved"), F("RF settings saved"), detail);
 }
 
 static void handleTokenSave() {
@@ -1417,6 +1579,9 @@ void begin(const String& hn, const String& tk) {
     httpServer->on("/network", HTTP_POST, handleNetworkSave);
     httpServer->on("/gps",     HTTP_POST, handleGpsSave);
     httpServer->on("/rf-lna",  HTTP_POST, handleRfLnaSave);
+    if (RFFrontEnd::hasPaModeControl() && RFFrontEnd::hasStationG3LnaControl()) {
+        httpServer->on("/rf-pa", HTTP_POST, handleRfPaSave);
+    }
     httpServer->on("/token",  HTTP_POST, handleTokenSave);
     httpServer->on("/auth",   HTTP_POST, handleAuthSave);
     httpServer->on("/wifi-reset", HTTP_POST, handleWifiReset);
