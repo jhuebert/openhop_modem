@@ -1,7 +1,7 @@
 // =============================================================
-// tcp_server.h — TCP LoRa-modem protocol server (Wi-Fi STA)
-// Accepts one client; optional shared-token auth required before
-// non-AUTH commands are processed.
+// tcp_server.h — TCP LoRa-modem protocol server for ESP32 Wi-Fi
+// and native-Ethernet targets. Accepts one client; optional shared-token
+// authentication is required before non-AUTH commands are processed.
 // =============================================================
 #pragma once
 
