@@ -1,6 +1,6 @@
 # Installation — step by step
 
-All commands assume you are in the repository root `pymc_modem/`.
+All commands assume you are in the `openhop_modem` repository root.
 
 ## 1. Flash the firmware
 
@@ -185,210 +185,132 @@ covered in the README's
 [Porting to another ESP32-P4 board](README.md#porting-to-another-esp32-p4-board)
 section.
 
-## 2. USB connection (`pymc_usb` radio type)
+## 2. Connect over USB (`modem_usb`)
 
 ```bash
-ls -la /dev/ttyACM* /dev/ttyUSB*
+ls -la /dev/serial/by-id/* /dev/ttyACM* /dev/ttyUSB*
 ```
 
-Usually `/dev/ttyUSB0` (CP2102) or `/dev/ttyACM0` (native CDC). Optional udev
-rule for a stable symlink:
+Prefer a stable `/dev/serial/by-id/...` path when the board exposes one.
+Numbered `/dev/ttyACM*` and `/dev/ttyUSB*` paths can change after reconnecting
+or rebooting. The normal USB-CDC baud rate is `921600`.
+
+An optional udev rule can provide a short stable symlink for a known VID/PID:
 
 ```bash
-sudo tee /etc/udev/rules.d/99-lora-modem.rules << 'EOF'
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="lora-modem", MODE="0666"
+sudo tee /etc/udev/rules.d/99-openhop-modem.rules <<'EOF'
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="openhop-modem", MODE="0660", GROUP="dialout"
 EOF
-sudo udevadm control --reload-rules && sudo udevadm trigger
+sudo udevadm control --reload-rules
+sudo udevadm trigger
 ```
 
-(VID/PID `10c4:ea60` matches the CP2102 on the Heltec V3; for native USB-CDC
-use `303a:1001`.)
+The example VID/PID is the CP2102 used by Heltec V3. Match the rule to the
+actual board shown by `udevadm info` rather than applying it blindly. The
+RAK4631 WisMesh Ethernet USB product is now `WisMesh-openHop-Ethernet`; after
+flashing this firmware, reselect any `/dev/serial/by-id/...` path created by an
+earlier firmware descriptor.
 
-## 3. WiFi / TCP configuration (optional, for `pymc_tcp` mode)
+## 3. Connect over Wi-Fi or Ethernet (`modem_tcp`)
 
-> **Security note — network TCP token:** fresh firmware defaults to an empty
-> TCP token, so port 5055 is open to anyone on the same LAN segment until
-> you set one. The firmware still filters non-RFC1918/link-local/loopback
-> source addresses, but on a shared LAN an empty token is only safe on an
-> isolated network. On web-enabled Wi-Fi firmware, set/change the TCP token
-> from the device web UI (or via USB provisioning). The RAK4631 W5100S
-> Ethernet target has no web UI/HTTP stack, so its current token default is
-> the `PYMC_ETH_TOKEN` build flag in `platformio.ini`.
+Fresh Wi-Fi firmware starts the open access point `openHop-Modem-XXXX`.
+Connect a phone or laptop, open `http://192.168.4.1`, select the LAN, enter its
+password, and choose **Save & Restart**. You can also configure Wi-Fi and the TCP
+token from the device web UI after it joins the LAN.
 
-On first boot the modem starts an open access point `openHop-Modem-XXXX`.
-Connect a phone/laptop to that AP, open `http://192.168.4.1`, pick your
-Wi-Fi + password, hit **Save & Restart**.
+The modem protocol listens on TCP port `5055`. Fresh firmware defaults to an
+empty token, which permits any client on the local LAN. Set a token before using
+the modem on an untrusted or shared network. The firmware rejects non-LAN
+source addresses, but that is not a substitute for local authentication.
 
-Alternatively — **provisioning over USB** (doesn't require access to the
-temporary setup AP):
+Wired targets use DHCP unless their board configuration says otherwise. The
+RAK4631/W5100S target has no mDNS or HTTP management stack; find its address in
+the DHCP lease table and configure its TCP defaults at build time with the
+canonical `OPENHOP_ETH_*` flags. Older `PYMC_ETH_*` overrides remain accepted
+as compatibility aliases so existing custom builds do not silently lose their
+TCP token or hardware policy; when both forms are supplied, `OPENHOP_ETH_*`
+wins.
 
-```python
-import asyncio
-from pymc_driver.usb_radio import USBLoRaRadio
+## 4. Configure openHop Repeater
 
-async def provision():
-    r = USBLoRaRadio(port="/dev/ttyUSB0")
-    r.begin()
-    resp = await r.set_wifi_credentials(
-        ssid="MyLAN", password="...",
-        tcp_port=5055, tcp_token="",   # token="" means open LAN
-    )
-    print(resp)   # device reboots into STA; reconnect after ~10s
-    r.cleanup()
+openHop Repeater and openHop Core contain the USB and TCP modem drivers. The
+canonical `modem_usb` / `modem_tcp` names require the coordinated Repeater/Core
+transport-naming release; deploy that migration before using these examples.
+Upgrade older Repeater installations rather than copying drivers from this
+repository or patching an installed service. Use the Repeater setup wizard, or
+configure one of the canonical transports.
 
-asyncio.run(provision())
-```
-
-Check the status after reconnect:
-
-```python
-async def check():
-    r = USBLoRaRadio(port="/dev/ttyUSB0")
-    r.begin()
-    status = await r.get_wifi_status()
-    print(status)
-    # {'mode_name': 'sta', 'ip': '192.168.1.50',
-    #  'mdns': 'heltec-abcdef.local', ...}
-```
-
-## 4. Standalone connection test (without Repeater)
-
-```bash
-pip install pyserial
-python3 pymc_driver/test_modem.py /dev/ttyUSB0
-```
-
-You should see `PONG`, `CONFIG_RESP`, `STATUS_RESP`, `CAD_RESP`, `TX_DONE`.
-
-## 5. Configure Repeater
-
-Current Repeater releases include the openHop Modem drivers and know the
-`pymc_usb` and `pymc_tcp` radio types directly. Do **not** copy drivers into
-openHop Core or patch Repeater by hand for normal installs.
-
-Example `/etc/pymc_repeater/config.yaml` for a LAN/Wi-Fi modem:
+TCP example:
 
 ```yaml
-radio_type: pymc_tcp
+radio_type: modem_tcp
 
 radio:
-  frequency: 869618000       # MeshCore EU Narrow / Switzerland
+  frequency: 869618000
   bandwidth: 62500
   spreading_factor: 8
-  coding_rate: 8             # 4/8
+  coding_rate: 8
   tx_power: 22
-  sync_word: 18              # 0x12, private
+  sync_word: 18
   preamble_length: 16
-  cad:
-    peak_threshold: 23
-    min_threshold: 11
 
-pymc_tcp:
-  host: 192.168.1.50          # modem LAN IP or mDNS name
+modem_tcp:
+  host: 192.168.1.50
   port: 5055
-  token: ""                  # empty = open LAN
+  token: ""
   connect_timeout: 5.0
   lbt_enabled: true
   lbt_max_attempts: 5
 ```
 
-USB modem alternative:
+USB example:
 
 ```yaml
-radio_type: pymc_usb
+radio_type: modem_usb
 
-pymc_usb:
-  port: /dev/ttyUSB0
+modem_usb:
+  port: /dev/serial/by-id/REPLACE_WITH_MODEM_DEVICE
   baudrate: 921600
   lbt_enabled: true
   lbt_max_attempts: 5
 ```
 
-The old `scripts/install.sh` / `patches/` workflow is kept only as legacy
-reference material for pre-integration Repeater/Core installs.
+For Docker, pass the real host device into the Repeater container and use the
+path visible inside that container. Install and operate the container from the
+openHop Repeater repository or its published image; this firmware repository
+does not build a separate Repeater image.
 
-## 6. Start the repeater
-
-```bash
-sudo systemctl restart pymc-repeater
-sudo journalctl -u pymc-repeater -f
-```
-
-Expected log lines:
-
-```
-TCPLoRaRadio configured: 192.168.1.50:5055 (auth=open), freq=869.6MHz, ...
-TCP connected to 192.168.1.50:5055
-Modem PONG received — alive
-Radio configured: 869.6MHz SF8 BW62kHz 22dBm sync=0x0012 pre=16
-CAD thresholds pushed peak=23 min=11: OK
-RX callback registered
-Retransmitted packet (X bytes, Yms airtime)   ← mesh forwarding is live
-```
-
-## 7. Verification checklist
-
-- **Firmware version:** the STATUS screen shows it after the boot
-  splash. Or programmatically:
-  ```python
-  await radio.get_version()   # e.g. "v0.8.0-heltec" / "-esp32_p4" / "-heltec_t114"
-  ```
-- **OLED screen cycle** (short PRG taps): SLEEP → STATUS → RADIO → DIAGNOSTICS.
-  The RADIO screen shows the live chip configuration (freq, SF, BW, CR,
-  power, sync, preamble). The DIAGNOSTICS screen shows uptime, the TCP
-  client IP, the age of the last USB command, and RX/TX/CRC counters.
-- **Uptime grows monotonically** — it should no longer reset every 60 s
-  (that was the firmware-hang symptom fixed between v0.5.4 and v0.5.8).
-- **CAD actually works** — `Modem error: 0x07` in the repeater log should
-  be infrequent, not routine. Around ~27 % failure at SF8/62.5k is the
-  baseline SX1262 IRQ-miss rate (same as on the SPI HAT reference).
-
-## 8. Docker deployment (alternative to native install)
-
-The Docker image runs Repeater with the built-in `pymc_tcp` / `pymc_usb`
-radio support. Default transport is `pymc_tcp` — the modem lives on the LAN and
-the container has no need for `--device` or dialout group membership unless you
-switch to USB mode.
-
-### Build and run
+## 5. Start and verify Repeater
 
 ```bash
-# Set PYMC_TCP_HOST in a .env file next to docker-compose.yml first
-# (or leave the placeholder and finish setup from the web UI's
-# "pymc_tcp config" panel afterwards).
-docker compose up -d --build
-docker compose logs -f
+sudo systemctl restart openhop-repeater
+sudo journalctl -u openhop-repeater -f
 ```
 
-`docker compose up -d --build` ignores the `image:` line and builds
-locally from `docker/Dockerfile`. To run the published image without
-rebuilding, drop `--build`: `docker compose pull && docker compose up
--d` will fetch `itkeny/pymc-usb-repeater:latest` from Docker Hub.
+Expected behavior:
 
-### Publishing firmware with a GitHub Release (maintainer only)
+- the modem answers `PONG` and reports its firmware version;
+- the configured frequency, spreading factor, bandwidth, coding rate, power,
+  sync word, and preamble are accepted;
+- CAD thresholds apply without repeated timeout errors;
+- receive callbacks remain active and mesh packets appear in Repeater metrics;
+- network modems reconnect after a temporary LAN interruption;
+- USB modems reopen through the configured stable device path after reconnect.
 
-Publishing a GitHub Release automatically runs
-`.github/workflows/publish-firmware-release-assets.yml`. The workflow checks
-out the release's tag, validates every tracked `firmware/<env>/SHA256SUMS.txt`,
-and attaches one ZIP per firmware environment to that existing release:
+The device display or HTTP statistics page can independently confirm uptime,
+radio state, packet counters, network state, and firmware version. Do not run a
+transmit test until the antenna, legal region, frequency, power, and external PA
+configuration have been checked for the exact board.
 
-- `openhop-modem-<env>-<tag>.zip` — one package containing only that ESP32 or
-  nRF52 variant's checksummed firmware files;
-- `openhop-modem-firmware-<tag>-SHA256SUMS.txt` — checksums for every uploaded
-  variant ZIP.
+## 6. Publish firmware release assets (maintainers)
 
-Create or select the version tag in the GitHub **Releases** UI, write the
-release notes, and click **Publish release**. Draft releases do not run the
-workflow. The ZIPs are built from the exact tagged revision rather than from
-the current branch tip.
+Publishing a GitHub Release runs
+`.github/workflows/publish-firmware-release-assets.yml`. The workflow checks out
+the exact release tag, validates every tracked `firmware/<env>/SHA256SUMS.txt`,
+and attaches one independently downloadable ZIP per firmware environment plus a
+release-level checksum manifest.
 
-To retry or backfill an existing release, open **Actions → Publish Firmware
-Release Assets → Run workflow** and enter its existing tag. Uploads use
-`--clobber`, so retrying replaces the generated assets without creating a
-second release. This workflow uses the repository `GITHUB_TOKEN`; no additional
-secret is required.
-
-The same package can be produced locally without uploading anything:
+To package an existing tag locally without uploading:
 
 ```bash
 python3 firmware/tools/package_release_assets.py \
@@ -396,103 +318,6 @@ python3 firmware/tools/package_release_assets.py \
 (cd /tmp/openhop-release && sha256sum -c *-SHA256SUMS.txt)
 ```
 
-### Releasing a new image to Docker Hub (maintainer only)
-
-A GitHub Action at `.github/workflows/docker-publish.yml` builds
-multi-arch (linux/amd64 + linux/arm64) and pushes on every git tag
-starting with `v*`:
-
-```bash
-git tag v0.8.0
-git push origin v0.8.0
-# Action runs ~5 minutes, pushes itkeny/pymc-usb-repeater:v0.8.0
-# and :latest. Watch progress under the repo's Actions tab.
-```
-
-The workflow needs two repo secrets (Settings → Secrets → Actions):
-`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub Access Token
-with Read & Write scope, NOT the account password). Manual rebuilds
-without bumping the tag: `Actions → Publish Docker image → Run
-workflow` — pushes only `:latest`.
-
-Dashboard: `http://localhost:8000`. Three host bind mounts under
-`./data/` (relative to the compose file) keep config / database / logs
-on the host filesystem so they survive `docker rm`, can be backed up
-with the usual file tools, and can be edited without `docker exec`:
-
-| Host path             | Container mount             | Purpose                              |
-|-----------------------|-----------------------------|--------------------------------------|
-| `./data/config/`      | `/etc/pymc_repeater`        | `config.yaml`, identity files        |
-| `./data/state/`       | `/var/lib/pymc_repeater`    | `radio-settings.json`, SQLite, MQTT  |
-| `./data/logs/`        | `/var/log/pymc_repeater`    | `repeater.log`                       |
-
-The directories are auto-created on first start. The container starts
-as root just long enough to chown them to its `repeater` user, then
-drops privileges via `gosu` — so the daemon never runs as root and the
-files are still owned by the same uid every time.
-
-### Environment variables
-
-The entrypoint applies env-var overrides on every container start —
-change a value in `docker-compose.yml` and `docker compose up -d` to
-re-stamp the running config.
-
-| Variable                  | Default       | Notes                                      |
-|---------------------------|---------------|--------------------------------------------|
-| `RADIO_TYPE`              | `pymc_tcp`    | `pymc_tcp` or `pymc_usb`                   |
-| `PYMC_TCP_HOST`           | `192.168.1.50`| Modem LAN IP or `ikoka-XXXXXX.local` etc.  |
-| `PYMC_TCP_PORT`           | `5055`        | Firmware TCP listener                      |
-| `PYMC_TCP_TOKEN`          | *(empty)*     | Match the firmware NVS auth token          |
-| `PYMC_TCP_CONNECT_TIMEOUT`| `5.0`         | Seconds — raise on slow Wi-Fi              |
-| `SERIAL_PORT`             | `/dev/ttyUSB0`| Used when `RADIO_TYPE=pymc_usb`            |
-| `BAUDRATE`                | `921600`      | USB-CDC baudrate (must match firmware)     |
-| `NODE_NAME`               | `openHop_RPT` | Repeater node name in the mesh             |
-| `ADMIN_PASSWORD`          | `admin123`    | Web UI admin — change before exposing      |
-| `FREQUENCY`               | `869618000`   | Hz                                         |
-| `TX_POWER`                | `22`          | dBm                                        |
-| `BANDWIDTH`               | `62500`       | Hz                                         |
-| `SPREADING_FACTOR`        | `8`           |                                            |
-| `CODING_RATE`             | `8`           | 4/8                                        |
-| `SYNC_WORD`               | `18`          | `0x12` (private)                           |
-| `PREAMBLE_LENGTH`         | `16`          | symbols                                    |
-
-The legacy `HELTEC_HOST` / `HELTEC_PORT` / `HELTEC_TOKEN` /
-`HELTEC_CONNECT_TIMEOUT` env vars are still honoured as fallbacks so
-pre-rename `.env` files keep working without edits.
-
-### USB mode in containers
-
-USB-CDC requires passing the device through and matching the dialout group:
-
-```bash
-docker run -d --name repeater \
-  -p 8000:8000 \
-  --device=/dev/ttyUSB0:/dev/ttyUSB0 \
-  -e RADIO_TYPE=pymc_usb -e SERIAL_PORT=/dev/ttyUSB0 \
-  itkeny/pymc-usb-repeater:latest
-```
-
-Or in `docker-compose.yml`, uncomment both `SERIAL_PORT` and the
-`devices:` block.
-
-### Deferred-connect
-
-If `PYMC_TCP_HOST` stays at the placeholder (or is left unset), the
-container does **not** abort. `TCPLoRaRadio` enters deferred-connect
-mode and the entrypoint logs `[WARN] Modem not reachable yet` —
-finish provisioning by clicking **pymc_tcp config** in the web UI's
-bottom-right corner and entering the real host. The driver reconnects
-on the fly with no service restart.
-
-## File placement summary
-
-| Source file                    | Purpose                                          |
-|--------------------------------|--------------------------------------------------|
-| `firmware/*.bin`               | Manual flash / OTA artifacts when not using the browser flasher |
-| `pymc_driver/usb_radio.py`     | Standalone local probe/debug helper              |
-| `pymc_driver/tcp_radio.py`     | Standalone local probe/debug helper              |
-| `patches/`                     | Legacy reference material for old installs only  |
-
-Current Repeater releases already ship the modem radio support. Users should
-select `radio_type: pymc_usb` or `radio_type: pymc_tcp`; they should not copy
-these files into Repeater/openHop Core for a normal install.
+To retry or backfill a published tag, use **Actions → Publish Firmware Release
+Assets → Run workflow** and supply that existing tag. The workflow replaces its
+own generated release assets; it does not create a second release.

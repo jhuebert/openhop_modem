@@ -13,7 +13,7 @@
       ["0x239A", "0x002A"],
       ["0x239A", "0x802A"]
     ],
-    "usb_product": "WisMesh-pyMC-Ethernet",
+    "usb_product": "WisMesh-openHop-Ethernet",
     "mcu": "nrf52840",
     "variant": "RAK4631_WisMesh_Ethernet",
     "bsp": {

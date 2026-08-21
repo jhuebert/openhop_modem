@@ -1,5 +1,5 @@
 // =============================================================
-// main.cpp — openHop Modem (pymc_modem) firmware
+// main.cpp — openHop Modem firmware
 // Serial + Wi-Fi/TCP + Ethernet/TCP bridge to SX1262 for openHop Core on RPi.
 //
 // Supported boards: see README.md and firmware/include/boards/.
@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <RadioLib.h>
 #include <stdarg.h>
+#include "legacy_rak4631_build_flags.h"
 #include "protocol.h"
 #include "board_config.h"
 #include "frame_parser.h"
@@ -48,18 +49,18 @@
 // nRF52 builds exclude the ESP32 Wi-Fi/OTA/display managers via
 // platformio.ini's build_src_filter. Most nRF52 targets are
 // USB/UART-only; RAK4631 enables a separate W5100S Ethernet TCP
-// transport under PYMC_ETHERNET_W5100S. Provide drop-in stub
+// transport under OPENHOP_ETHERNET_W5100S. Provide drop-in stub
 // namespaces for the rest so call sites compile unchanged.
 #include <IPAddress.h>
-#if defined(PYMC_ETHERNET_W5100S)
-#  ifndef PYMC_ETH_TCP_PORT
-#    define PYMC_ETH_TCP_PORT 5055
+#if defined(OPENHOP_ETHERNET_W5100S)
+#  ifndef OPENHOP_ETH_TCP_PORT
+#    define OPENHOP_ETH_TCP_PORT 5055
 #  endif
-#  ifndef PYMC_ETH_TOKEN
-#    define PYMC_ETH_TOKEN ""
+#  ifndef OPENHOP_ETH_TOKEN
+#    define OPENHOP_ETH_TOKEN ""
 #  endif
-#  ifndef PYMC_ETH_HOSTNAME
-#    define PYMC_ETH_HOSTNAME "pymc-rak4631-eth"
+#  ifndef OPENHOP_ETH_HOSTNAME
+#    define OPENHOP_ETH_HOSTNAME "openhop-rak4631-eth"
 #  endif
 #endif
 namespace WifiManager {
@@ -90,8 +91,8 @@ namespace WifiManager {
     inline void  applyWifiAntennaSwitch() {}
     inline const char* getSSID()     { return "---"; }
     inline const char* getIPString() { return "---"; }
-#if defined(PYMC_ETHERNET_W5100S)
-    inline const char* getHostname() { return PYMC_ETH_HOSTNAME; }
+#if defined(OPENHOP_ETHERNET_W5100S)
+    inline const char* getHostname() { return OPENHOP_ETH_HOSTNAME; }
 #else
     inline const char* getHostname() { return "---"; }
 #endif
@@ -99,10 +100,10 @@ namespace WifiManager {
     inline const Config& getConfig() {
         static Config c = []() {
             Config cfg;
-#if defined(PYMC_ETHERNET_W5100S)
-            cfg.hostname = PYMC_ETH_HOSTNAME;
-            cfg.tcpToken = PYMC_ETH_TOKEN;
-            cfg.tcpPort = PYMC_ETH_TCP_PORT;
+#if defined(OPENHOP_ETHERNET_W5100S)
+            cfg.hostname = OPENHOP_ETH_HOSTNAME;
+            cfg.tcpToken = OPENHOP_ETH_TOKEN;
+            cfg.tcpPort = OPENHOP_ETH_TCP_PORT;
 #endif
             return cfg;
         }();
@@ -111,7 +112,7 @@ namespace WifiManager {
     inline void  saveConfig(const Config&) {}
     inline void  factoryReset()      {}
 }
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
 #  include "w5100s_ethernet_transport.h"
 #else
 namespace TCPServer {
@@ -128,7 +129,7 @@ namespace OTAManager {
     inline void loop() {}
     inline void notifyValidFrame() {}
 }
-#if !defined(PYMC_ETHERNET_W5100S)
+#if !defined(OPENHOP_ETHERNET_W5100S)
 namespace EthernetManager {
     inline void begin(const char* = nullptr,
                       bool = false,
@@ -179,7 +180,7 @@ static String fwVersion;   // populated in setup()
 static constexpr uint32_t LOOP_WDT_TIMEOUT_S = 30;
 
 // ─── Hardware setup ──────────────────────────────────────────
-class PymcSX1262 : public SX1262 {
+class OpenHopSX1262 : public SX1262 {
 public:
     using SX1262::SX1262;
 
@@ -195,18 +196,18 @@ public:
 // SX1262 / E22P pin map comes from BOARD (see boards/<name>.h).
 #if defined(BOARD_PHOTON_1W_XIAO_ESP32C6)
 static SPIClass loraSpi(0);
-PymcSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
+OpenHopSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
                               BOARD.pin_lora_rst, BOARD.pin_lora_busy,
                               loraSpi);
 #elif defined(BOARD_RAK4631_WISMESH_ETH)
 // Global SPI is reserved for the RAK13800/W5100S IO-slot bus. The RAK4631
 // internal SX1262 uses a separate nRF52 SPIM instance on P1.11/P1.13/P1.12.
 static SPIClass loraSpi(NRF_SPIM2, 45, 43, 44);  // MISO, SCK, MOSI
-PymcSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
+OpenHopSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
                               BOARD.pin_lora_rst, BOARD.pin_lora_busy,
                               loraSpi);
 #else
-PymcSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
+OpenHopSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
                               BOARD.pin_lora_rst, BOARD.pin_lora_busy);
 #endif
 
@@ -255,8 +256,8 @@ static uint32_t lastAgcResetMs   = 0;
 // When cadCustom == false we call scanChannel() with RadioLib's defaults;
 // host can override by programming peak/min/symbols/exit_mode.
 static bool    cadCustom   = false;
-static uint8_t cadSymNum   = 0x01;  // RADIOLIB_SX126X_CAD_ON_2_SYMB — matches pymc_core
-static uint8_t cadDetPeak  = 22;    // pymc_core default for SF7-SF8
+static uint8_t cadSymNum   = 0x01;  // RADIOLIB_SX126X_CAD_ON_2_SYMB — matches openHop Core
+static uint8_t cadDetPeak  = 22;    // openHop Core default for SF7-SF8
 static uint8_t cadDetMin   = 10;    // AN1200.48 recommendation
 static uint8_t cadExitMode = 0x00;  // RADIOLIB_SX126X_CAD_GOTO_STDBY
 
@@ -781,8 +782,8 @@ bool applyConfig(const RadioConfig& cfg) {
     radio.setCRC(1);
     radio.invertIQ(false);
 
-    // Auto-LDRO mirrors pymc_core sx1262_wrapper.py — without this,
-    // SF11/SF12 presets are modulation-incompatible with pymc_core.
+    // Auto-LDRO mirrors openHop Core sx1262_wrapper.py — without this,
+    // SF11/SF12 presets are modulation-incompatible with openHop Core.
     radio.autoLDRO();
 
     // Push the live config to the TFT cache so the next status
@@ -1476,7 +1477,7 @@ void setup() {
     // ─── SX1262 init (skipped when board has no LoRa hardware) ──
     // ESP32-P4-NANO ships without a LoRa front end on day one — the
     // module is added later. Until then BOARD.has_lora_radio == false
-    // and the firmware runs as a plain pymc_repeater bridge over
+    // and the firmware runs as a plain openHop Repeater bridge over
     // Wi-Fi / Ethernet, returning ERR_NO_RADIO for radio commands so
     // the host can still probe the modem.
     if (BOARD.has_lora_radio) {
@@ -1576,7 +1577,7 @@ void setup() {
             useEthernet = true;
             Serial.println("[NET] Ethernet link up — Wi-Fi will be skipped");
         } else {
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
             // W5100S is the only network path on this nRF52 target. Keep the
             // transport initialized so loop() can detect a later cable insert
             // and retry DHCP, rather than permanently disabling Ethernet at boot.
@@ -1602,7 +1603,7 @@ void setup() {
         // Diagnostic mode (has_wifi == false): ignore the saved token
         // so we can probe the TCP server without re-authenticating.
         // Restore normal auth once Wi-Fi comes back.
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
         String token = wcfg.tcpToken;
 #else
         String token = BOARD.has_wifi ? wcfg.tcpToken : String();
@@ -1772,7 +1773,7 @@ void loop() {
     bool netUp = WifiManager::isSTAConnected() || EthernetManager::hasIP();
     if (!tcpStarted && netUp) {
         const auto& wcfg = WifiManager::getConfig();
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
         String token = wcfg.tcpToken;
 #else
         String token = BOARD.has_wifi ? wcfg.tcpToken : String();
@@ -1783,7 +1784,7 @@ void loop() {
     }
     if (!otaStarted && netUp) {
         const auto& wcfg = WifiManager::getConfig();
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
         String token = wcfg.tcpToken;
 #else
         String token = BOARD.has_wifi ? wcfg.tcpToken : String();

@@ -3,11 +3,13 @@
 // RAK4631 + RAK13800 / WisMesh Ethernet Gateway.
 //
 // This is deliberately protocol-compatible with the existing ESP32
-// tcp_server.cpp: one client, optional shared-token AUTH, same pyMC
+// tcp_server.cpp: one client, optional shared-token AUTH, same openHop
 // binary frame format, same TransportSource::TCP command path.
 // =============================================================
 
-#if defined(PYMC_ETHERNET_W5100S)
+#include "legacy_rak4631_build_flags.h"
+
+#if defined(OPENHOP_ETHERNET_W5100S)
 
 #include "w5100s_ethernet_transport.h"
 #include "protocol.h"
@@ -22,86 +24,86 @@
 #  include "nrf_gpio.h"
 #endif
 
-#ifndef PYMC_ETH_TCP_PORT
-#  define PYMC_ETH_TCP_PORT 5055
+#ifndef OPENHOP_ETH_TCP_PORT
+#  define OPENHOP_ETH_TCP_PORT 5055
 #endif
-#ifndef PYMC_ETH_TOKEN
-#  define PYMC_ETH_TOKEN ""
+#ifndef OPENHOP_ETH_TOKEN
+#  define OPENHOP_ETH_TOKEN ""
 #endif
-#ifndef PYMC_ETH_HOSTNAME
-#  define PYMC_ETH_HOSTNAME "pymc-rak4631-eth"
+#ifndef OPENHOP_ETH_HOSTNAME
+#  define OPENHOP_ETH_HOSTNAME "openhop-rak4631-eth"
 #endif
-#ifndef PYMC_ETH_USE_DHCP
-#  define PYMC_ETH_USE_DHCP 1
+#ifndef OPENHOP_ETH_USE_DHCP
+#  define OPENHOP_ETH_USE_DHCP 1
 #endif
-#ifndef PYMC_ETH_DHCP_TIMEOUT_MS
-#  define PYMC_ETH_DHCP_TIMEOUT_MS 5000UL
+#ifndef OPENHOP_ETH_DHCP_TIMEOUT_MS
+#  define OPENHOP_ETH_DHCP_TIMEOUT_MS 5000UL
 #endif
-#ifndef PYMC_ETH_DHCP_RESPONSE_TIMEOUT_MS
-#  define PYMC_ETH_DHCP_RESPONSE_TIMEOUT_MS 1000UL
+#ifndef OPENHOP_ETH_DHCP_RESPONSE_TIMEOUT_MS
+#  define OPENHOP_ETH_DHCP_RESPONSE_TIMEOUT_MS 1000UL
 #endif
-#ifndef PYMC_ETH_DHCP_RETRY_MS
-#  define PYMC_ETH_DHCP_RETRY_MS 30000UL
+#ifndef OPENHOP_ETH_DHCP_RETRY_MS
+#  define OPENHOP_ETH_DHCP_RETRY_MS 30000UL
 #endif
-#ifndef PYMC_ETH_STATIC_FALLBACK_ON_DHCP_FAIL
+#ifndef OPENHOP_ETH_STATIC_FALLBACK_ON_DHCP_FAIL
 // Avoid claiming a hard-coded address on an unknown production LAN unless the
 // builder explicitly opts in. With the default 0, DHCP failure leaves the
 // transport offline and retries while link is up.
-#  define PYMC_ETH_STATIC_FALLBACK_ON_DHCP_FAIL 0
+#  define OPENHOP_ETH_STATIC_FALLBACK_ON_DHCP_FAIL 0
 #endif
-#ifndef PYMC_ETH_STATIC_IP
-#  define PYMC_ETH_STATIC_IP 192, 168, 1, 50
+#ifndef OPENHOP_ETH_STATIC_IP
+#  define OPENHOP_ETH_STATIC_IP 192, 168, 1, 50
 #endif
-#ifndef PYMC_ETH_GATEWAY
-#  define PYMC_ETH_GATEWAY 192, 168, 1, 1
+#ifndef OPENHOP_ETH_GATEWAY
+#  define OPENHOP_ETH_GATEWAY 192, 168, 1, 1
 #endif
-#ifndef PYMC_ETH_SUBNET
-#  define PYMC_ETH_SUBNET 255, 255, 255, 0
+#ifndef OPENHOP_ETH_SUBNET
+#  define OPENHOP_ETH_SUBNET 255, 255, 255, 0
 #endif
-#ifndef PYMC_ETH_DNS
-#  define PYMC_ETH_DNS 1, 1, 1, 1
+#ifndef OPENHOP_ETH_DNS
+#  define OPENHOP_ETH_DNS 1, 1, 1, 1
 #endif
 
-#ifndef PYMC_ETH_POWER_PIN
-#  define PYMC_ETH_POWER_PIN -1
+#ifndef OPENHOP_ETH_POWER_PIN
+#  define OPENHOP_ETH_POWER_PIN -1
 #endif
-#ifndef PYMC_ETH_RESET_PIN
-#  define PYMC_ETH_RESET_PIN -1
+#ifndef OPENHOP_ETH_RESET_PIN
+#  define OPENHOP_ETH_RESET_PIN -1
 #endif
-#ifndef PYMC_ETH_CS_PIN
-#  define PYMC_ETH_CS_PIN SS
+#ifndef OPENHOP_ETH_CS_PIN
+#  define OPENHOP_ETH_CS_PIN SS
 #endif
-#ifndef PYMC_ETH_RESET_LOW_MS
-#  define PYMC_ETH_RESET_LOW_MS 100
+#ifndef OPENHOP_ETH_RESET_LOW_MS
+#  define OPENHOP_ETH_RESET_LOW_MS 100
 #endif
-#ifndef PYMC_ETH_POST_RESET_MS
-#  define PYMC_ETH_POST_RESET_MS 1000
+#ifndef OPENHOP_ETH_POST_RESET_MS
+#  define OPENHOP_ETH_POST_RESET_MS 1000
 #endif
-#ifndef PYMC_ETH_HARD_RESET_ON_BEGIN
+#ifndef OPENHOP_ETH_HARD_RESET_ON_BEGIN
 // Official MeshCore RAK4631 Ethernet support does not pulse W5100S reset:
 // toggling reset can drop PHY link and break PoE-powered boot. Keep reset
 // deasserted by default; builders can opt in when debugging non-PoE setups.
-#  define PYMC_ETH_HARD_RESET_ON_BEGIN 0
+#  define OPENHOP_ETH_HARD_RESET_ON_BEGIN 0
 #endif
-#ifndef PYMC_ETH_ASSUME_UNKNOWN_LINK_UP
+#ifndef OPENHOP_ETH_ASSUME_UNKNOWN_LINK_UP
 // W5100S should be able to report cable link state. Treating Unknown as
 // link-up can start the TCP path while the chip/bus is not ready; make the
 // compatibility fallback explicit for local testing if needed.
-#  define PYMC_ETH_ASSUME_UNKNOWN_LINK_UP 0
+#  define OPENHOP_ETH_ASSUME_UNKNOWN_LINK_UP 0
 #endif
 
 #if defined(ARDUINO_ARCH_NRF52) || defined(NRF52_SERIES) || defined(ARDUINO_NRF52_ADAFRUIT)
 // W5100S Ethernet on SPIM3 (SPIM1 is reserved for I2C/TWI by the Adafruit
 // nRF52 BSP — see nrfx_config.h). The SX1262 LoRa radio uses SPIM2 in
 // main.cpp. Both use the WisBlock IO-slot pins defined in the board header.
-static SPIClass PymcEthSpi(NRF_SPIM3, PYMC_ETH_SPI_MISO,
-                           PYMC_ETH_SPI_SCK, PYMC_ETH_SPI_MOSI);
+static SPIClass OpenHopEthSpi(NRF_SPIM3, OPENHOP_ETH_SPI_MISO,
+                           OPENHOP_ETH_SPI_SCK, OPENHOP_ETH_SPI_MOSI);
 
 // RAK19018 PoE can brown out if WB_IO2 is not asserted early enough. The
 // official firmware drives WB_IO2 high from a constructor before normal
 // Arduino setup; do the same for the known RAK13800 power pin.
-#  if defined(PYMC_ETH_POWER_PIN) && (PYMC_ETH_POWER_PIN == 34)
-static void __attribute__((constructor(102))) pymcRak4631EarlyEthernetPower() {
+#  if defined(OPENHOP_ETH_POWER_PIN) && (OPENHOP_ETH_POWER_PIN == 34)
+static void __attribute__((constructor(102))) openHopRak4631EarlyEthernetPower() {
     nrf_gpio_cfg_output(NRF_GPIO_PIN_MAP(1, 2));  // WB_IO2 = P1.02 / Arduino 34
     nrf_gpio_pin_set(NRF_GPIO_PIN_MAP(1, 2));
 }
@@ -136,8 +138,8 @@ namespace EthernetManager {
     static char ipString[16] = "---";
     static uint32_t lastMaintainMs = 0;
     static uint32_t lastDhcpAttemptMs = 0;
-    static byte mac[6] = {0x02, 0x50, 0x59, 0x4d, 0x43, 0x00};
-    static char hostnameString[64] = PYMC_ETH_HOSTNAME;
+    static byte mac[6] = {0x02, 0x4f, 0x48, 0x4f, 0x50, 0x00};
+    static char hostnameString[64] = OPENHOP_ETH_HOSTNAME;
 
     static const char* linkStatusString() {
         auto s = Ethernet.linkStatus();
@@ -149,7 +151,7 @@ namespace EthernetManager {
 
     static bool linkStatusIsUp() {
         auto s = Ethernet.linkStatus();
-#if PYMC_ETH_ASSUME_UNKNOWN_LINK_UP
+#if OPENHOP_ETH_ASSUME_UNKNOWN_LINK_UP
         return s == LinkON || s == Unknown;
 #else
         return s == LinkON;
@@ -181,15 +183,15 @@ namespace EthernetManager {
                  ip[0], ip[1], ip[2], ip[3]);
     }
 
-#if PYMC_ETH_USE_DHCP
+#if OPENHOP_ETH_USE_DHCP
     static bool tryDhcp(const char* reason) {
         lastDhcpAttemptMs = millis();
         Serial.printf("[ETH] DHCP %s timeout=%lums response=%lums\n",
                       reason ? reason : "attempt",
-                      (unsigned long)PYMC_ETH_DHCP_TIMEOUT_MS,
-                      (unsigned long)PYMC_ETH_DHCP_RESPONSE_TIMEOUT_MS);
-        int ok = Ethernet.begin(mac, PYMC_ETH_DHCP_TIMEOUT_MS,
-                                PYMC_ETH_DHCP_RESPONSE_TIMEOUT_MS);
+                      (unsigned long)OPENHOP_ETH_DHCP_TIMEOUT_MS,
+                      (unsigned long)OPENHOP_ETH_DHCP_RESPONSE_TIMEOUT_MS);
+        int ok = Ethernet.begin(mac, OPENHOP_ETH_DHCP_TIMEOUT_MS,
+                                OPENHOP_ETH_DHCP_RESPONSE_TIMEOUT_MS);
         refreshIPString();
         if (ok != 0 && gotIP) {
             Serial.printf("[ETH] DHCP lease %s\n", ipString);
@@ -216,30 +218,30 @@ namespace EthernetManager {
         uint8_t chip[6] = {0};
         compatGetMac(chip);
         mac[0] = 0x02;
-        mac[1] = chip[1] ^ 0x50;
-        mac[2] = chip[2] ^ 0x59;
-        mac[3] = chip[3] ^ 0x4d;
-        mac[4] = chip[4] ^ 0x43;
+        mac[1] = chip[1] ^ 0x4F;
+        mac[2] = chip[2] ^ 0x48;
+        mac[3] = chip[3] ^ 0x4F;
+        mac[4] = chip[4] ^ 0x50;
         mac[5] = chip[5];
 #endif
     }
 
     static void powerAndReset() {
-        if (PYMC_ETH_POWER_PIN >= 0) {
-            pinMode(PYMC_ETH_POWER_PIN, OUTPUT);
-            digitalWrite(PYMC_ETH_POWER_PIN, HIGH);
+        if (OPENHOP_ETH_POWER_PIN >= 0) {
+            pinMode(OPENHOP_ETH_POWER_PIN, OUTPUT);
+            digitalWrite(OPENHOP_ETH_POWER_PIN, HIGH);
         }
-        if (PYMC_ETH_RESET_PIN >= 0) {
-            pinMode(PYMC_ETH_RESET_PIN, OUTPUT);
-#if PYMC_ETH_HARD_RESET_ON_BEGIN
-            digitalWrite(PYMC_ETH_RESET_PIN, LOW);
-            delay(PYMC_ETH_RESET_LOW_MS);
+        if (OPENHOP_ETH_RESET_PIN >= 0) {
+            pinMode(OPENHOP_ETH_RESET_PIN, OUTPUT);
+#if OPENHOP_ETH_HARD_RESET_ON_BEGIN
+            digitalWrite(OPENHOP_ETH_RESET_PIN, LOW);
+            delay(OPENHOP_ETH_RESET_LOW_MS);
 #endif
             // Keep W5100S reset deasserted. This mirrors official MeshCore
             // RAK4631 Ethernet support and avoids dropping a PoE PHY link.
-            digitalWrite(PYMC_ETH_RESET_PIN, HIGH);
+            digitalWrite(OPENHOP_ETH_RESET_PIN, HIGH);
         }
-        delay(PYMC_ETH_POST_RESET_MS);
+        delay(OPENHOP_ETH_POST_RESET_MS);
     }
 
     void begin(const char* hostname,
@@ -254,7 +256,7 @@ namespace EthernetManager {
         makeMac();
         powerAndReset();
 
-        const char* effectiveHostname = (hostname && hostname[0]) ? hostname : PYMC_ETH_HOSTNAME;
+        const char* effectiveHostname = (hostname && hostname[0]) ? hostname : OPENHOP_ETH_HOSTNAME;
         strncpy(hostnameString, effectiveHostname, sizeof(hostnameString));
         hostnameString[sizeof(hostnameString) - 1] = '\0';
         // Note: the W5100S library does not support DHCP option 12
@@ -262,16 +264,16 @@ namespace EthernetManager {
         // reporting via getIPString() and the WIFI_STATUS path.
 
 #if defined(ARDUINO_ARCH_NRF52) || defined(NRF52_SERIES) || defined(ARDUINO_NRF52_ADAFRUIT)
-        PymcEthSpi.begin();
-        Ethernet.init(PymcEthSpi, PYMC_ETH_CS_PIN);
+        OpenHopEthSpi.begin();
+        Ethernet.init(OpenHopEthSpi, OPENHOP_ETH_CS_PIN);
 #else
         SPI.begin();
-        Ethernet.init(SPI, PYMC_ETH_CS_PIN);
+        Ethernet.init(SPI, OPENHOP_ETH_CS_PIN);
 #endif
 
         Serial.printf("[ETH] W5100S init host=%s cs=%d pwr=%d rst=%d mac=%02X:%02X:%02X:%02X:%02X:%02X link=%s\n",
-                      hostnameString, (int)PYMC_ETH_CS_PIN,
-                      (int)PYMC_ETH_POWER_PIN, (int)PYMC_ETH_RESET_PIN,
+                      hostnameString, (int)OPENHOP_ETH_CS_PIN,
+                      (int)OPENHOP_ETH_POWER_PIN, (int)OPENHOP_ETH_RESET_PIN,
                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
                       linkStatusString());
 
@@ -279,7 +281,7 @@ namespace EthernetManager {
         dhcpMode = false;
         clearIPString();
 
-#if PYMC_ETH_USE_DHCP
+#if OPENHOP_ETH_USE_DHCP
         if (useStaticIP) {
             IPAddress dns = dns1 == IPAddress((uint32_t)0) ? gateway : dns1;
             Ethernet.begin(mac, staticIP, dns, gateway, subnet);
@@ -288,13 +290,13 @@ namespace EthernetManager {
             if (!linkStatusIsUp()) {
                 Serial.println("[ETH] no usable link at boot; DHCP deferred until link is up");
             } else if (!tryDhcp("initial")) {
-#  if PYMC_ETH_STATIC_FALLBACK_ON_DHCP_FAIL
+#  if OPENHOP_ETH_STATIC_FALLBACK_ON_DHCP_FAIL
                 Serial.println("[ETH] using compile-time static fallback after DHCP failure");
                 dhcpMode = false;
-                IPAddress ip(PYMC_ETH_STATIC_IP);
-                IPAddress gw(PYMC_ETH_GATEWAY);
-                IPAddress mask(PYMC_ETH_SUBNET);
-                IPAddress dns(PYMC_ETH_DNS);
+                IPAddress ip(OPENHOP_ETH_STATIC_IP);
+                IPAddress gw(OPENHOP_ETH_GATEWAY);
+                IPAddress mask(OPENHOP_ETH_SUBNET);
+                IPAddress dns(OPENHOP_ETH_DNS);
                 Ethernet.begin(mac, ip, dns, gw, mask);
 #  else
                 Serial.println("[ETH] static fallback disabled; will retry DHCP while link is up");
@@ -303,10 +305,10 @@ namespace EthernetManager {
         }
 #else
         {
-            IPAddress ip(PYMC_ETH_STATIC_IP);
-            IPAddress gw(PYMC_ETH_GATEWAY);
-            IPAddress mask(PYMC_ETH_SUBNET);
-            IPAddress dns(PYMC_ETH_DNS);
+            IPAddress ip(OPENHOP_ETH_STATIC_IP);
+            IPAddress gw(OPENHOP_ETH_GATEWAY);
+            IPAddress mask(OPENHOP_ETH_SUBNET);
+            IPAddress dns(OPENHOP_ETH_DNS);
             Ethernet.begin(mac, ip, dns, gw, mask);
         }
 #endif
@@ -330,7 +332,7 @@ namespace EthernetManager {
         uint32_t now = millis();
         if (now - lastMaintainMs >= 1000) {
             lastMaintainMs = now;
-#if PYMC_ETH_USE_DHCP
+#if OPENHOP_ETH_USE_DHCP
             if (dhcpMode && linkStatusIsUp()) {
                 Ethernet.maintain();
             }
@@ -338,9 +340,9 @@ namespace EthernetManager {
             refreshIPString();
         }
 
-#if PYMC_ETH_USE_DHCP
+#if OPENHOP_ETH_USE_DHCP
         if (dhcpMode && !gotIP && linkStatusIsUp() &&
-            (lastDhcpAttemptMs == 0 || now - lastDhcpAttemptMs >= PYMC_ETH_DHCP_RETRY_MS)) {
+            (lastDhcpAttemptMs == 0 || now - lastDhcpAttemptMs >= OPENHOP_ETH_DHCP_RETRY_MS)) {
             tryDhcp("retry");
         }
 #endif
@@ -446,11 +448,11 @@ namespace TCPServer {
         requiredToken = token;
         authenticated = false;
         parser.reset();
-        server = new EthernetServer(port ? port : PYMC_ETH_TCP_PORT);
+        server = new EthernetServer(port ? port : OPENHOP_ETH_TCP_PORT);
         server->begin();
         lastIpUsable = EthernetManager::hasIP();
         Serial.printf("[TCP/ETH] listening on %u auth=%s\n",
-                      (unsigned)(port ? port : PYMC_ETH_TCP_PORT),
+                      (unsigned)(port ? port : OPENHOP_ETH_TCP_PORT),
                       requiresAuth() ? "required" : "open");
     }
 
@@ -535,4 +537,4 @@ namespace TCPServer {
     }
 }
 
-#endif  // PYMC_ETHERNET_W5100S
+#endif  // OPENHOP_ETHERNET_W5100S

@@ -34,6 +34,3 @@ firmware/.selected_firmware_envs
 # Secrets / env
 .env
 *.env.local
-
-# Docker bind-mount runtime data (config, db, logs)
-data/
