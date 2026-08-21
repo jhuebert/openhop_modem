@@ -199,9 +199,10 @@ static SPIClass loraSpi(0);
 OpenHopSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
                               BOARD.pin_lora_rst, BOARD.pin_lora_busy,
                               loraSpi);
-#elif defined(BOARD_RAK4631_WISMESH_ETH)
-// Global SPI is reserved for the RAK13800/W5100S IO-slot bus. The RAK4631
-// internal SX1262 uses a separate nRF52 SPIM instance on P1.11/P1.13/P1.12.
+#elif defined(BOARD_RAK4631_WISMESH_ETH) || defined(BOARD_RAK4631_USB)
+// The RAK4631 internal SX1262 uses its own nRF52 SPIM instance on
+// P1.11/P1.13/P1.12. On the Ethernet variant this also keeps global SPI free
+// for RAK13800/W5100S; the USB-only variant retains the proven radio path.
 static SPIClass loraSpi(NRF_SPIM2, 45, 43, 44);  // MISO, SCK, MOSI
 OpenHopSX1262 radio = new Module(BOARD.pin_lora_nss, BOARD.pin_lora_dio1,
                               BOARD.pin_lora_rst, BOARD.pin_lora_busy,
@@ -1504,7 +1505,7 @@ void setup() {
             // nRF52 BSP: SPI peripheral has fixed pins on its selected
             // instance. RAK4631 WisMesh uses a dedicated LoRa SPI instance;
             // global SPI remains the W5100S Ethernet bus.
-#  if defined(BOARD_RAK4631_WISMESH_ETH)
+#  if defined(BOARD_RAK4631_WISMESH_ETH) || defined(BOARD_RAK4631_USB)
             loraSpi.begin();
 #  else
             SPI.begin();
