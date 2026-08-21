@@ -6,6 +6,7 @@
 #include "protocol.h"
 #include "frame_parser.h"
 #include "net_filter.h"
+#include "bounded_protocol_service.h"
 
 #include <WiFi.h>
 
@@ -178,22 +179,14 @@ void loop() {
     // main loop after a bounded amount of work. FrameParser keeps partial
     // state, so frames larger than the byte budget continue on the next pass.
     if (client && client.connected()) {
-        size_t bytesProcessed = 0;
-        uint8_t framesProcessed = 0;
-        uint32_t previousFrameCount = parsedFrameCount;
-
-        while (client.connected() && client.available() &&
-               bytesProcessed < MAX_BYTES_PER_LOOP &&
-               framesProcessed < MAX_FRAMES_PER_LOOP) {
-            uint8_t b = (uint8_t)client.read();
-            bytesProcessed++;
-            frameparser_feed(parser, b, TransportSource::TCP, onFrameOk, onFrameErr);
-
-            if (parsedFrameCount != previousFrameCount) {
-                framesProcessed++;
-                previousFrameCount = parsedFrameCount;
-            }
-        }
+        serviceBoundedProtocolInput(
+            client, MAX_BYTES_PER_LOOP, MAX_FRAMES_PER_LOOP,
+            [](uint8_t b) {
+                const uint32_t previousFrameCount = parsedFrameCount;
+                frameparser_feed(parser, b, TransportSource::TCP,
+                                 onFrameOk, onFrameErr);
+                return parsedFrameCount != previousFrameCount;
+            });
     }
 }
 
