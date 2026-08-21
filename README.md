@@ -1,9 +1,10 @@
 # openHop Modem — USB/TCP LoRa modem for openHop Core
 
-Firmware that turns a supported ESP32 or nRF52 board
-with an SX1262 front end into a "dumb" LoRa modem controlled from a
-Raspberry Pi over USB-CDC, Wi-Fi/TCP, or (on boards with native
-Ethernet) wired LAN.
+Firmware that turns a supported ESP32 or nRF52 board with an SX1262
+front end into a dedicated LoRa modem controlled by an openHop Core host
+over USB-CDC, Wi-Fi/TCP, or (on boards with native Ethernet) wired LAN.
+The transport is host-platform agnostic; platform support depends on the
+openHop application and its access to USB or the modem's network.
 
 **Supported boards** (one source tree, picked at compile time via
 `-DBOARD_<name>` in `platformio.ini`):
@@ -29,29 +30,29 @@ Ethernet) wired LAN.
 | **RAK4631 WisMesh Ethernet**                                                                                | nRF52840 (RAK4631) + RAK13800/W5100S | SX1262 in-module     | **Ethernet** (W5100S) — TCP port 5055, USB-CDC fallback |
 | **Seeed XIAO nRF52840 + Wio-SX1262**                                                                        | XIAO nRF52840                | bare SX1262                | **none** — USB-CDC only |
 
-Drop-in replacement for `SX1262Radio` in openHop Core — all MeshCore logic
-(routing, encryption, retransmission) runs on the RPi. The modem handles
-only the SX1262 physical layer: TX, RX, CAD, LoRa parameter configuration.
+openHop Core connects to the modem through `USBLoRaRadio` or
+`TCPLoRaRadio`. Routing, encryption, retransmission, and other MeshCore
+logic stay on the host; the modem handles the SX1262 physical layer:
+TX, RX, CAD, and LoRa parameter configuration.
 
 ## Architecture
 
 ```
-                       USB-CDC / Wi-Fi-TCP / Ethernet-TCP
-Raspberry Pi                                  openHop Modem
-┌────────────────────┐                        ┌─────────────────┐
-│ Repeater           │◄ USB 921600 ────────►  │ openHop Modem FW│
-│  └─ openHop Core   │                        │  └─ SX1262      │
-│     ├─ USBLoRaRadio│──── OR ──────          │  └─ RadioLib    │
-│     └─ TCPLoRaRadio│◄ TCP 5055 ─────────►   │  └─ OLED / TFT  │
-│                    │                        │  └─ Wi-Fi / ETH  │
-└────────────────────┘                        └─────────────────┘
-                                              * Wi-Fi on ESP32 boards,
-                                                Ethernet on P4-Nano,
-                                                EtherMesh-1W, and RAK4631.
-                                                No network
-                                                on T114/XIAO nRF52 Wio
-                                                (USB-CDC only).
+                         USB-CDC / Wi-Fi-TCP / Ethernet-TCP
+Host running openHop Core                         openHop Modem
+┌──────────────────────────┐                      ┌─────────────────┐
+│ openHop application      │                      │ Modem firmware  │
+│  └─ openHop Core         │◄ USB 921600 ───────►│  ├─ RadioLib    │
+│     ├─ USBLoRaRadio      │                      │  ├─ SX1262      │
+│     └─ TCPLoRaRadio      │◄ TCP 5055 ─────────►│  ├─ OLED / TFT  │
+│                          │                      │  └─ Wi-Fi / ETH │
+└──────────────────────────┘                      └─────────────────┘
 ```
+
+The host can be any platform supported by the openHop application and
+its USB or network transport. Wi-Fi is available on supported ESP32
+boards; wired Ethernet is available on P4-Nano, EtherMesh-1W, and
+RAK4631. T114 and XIAO nRF52 Wio use USB-CDC only.
 
 - **USB mode** — cable, instant, no provisioning; ideal for single-board setups.
 - **Network TCP mode** — Wi-Fi/TCP on ESP32 boards, or Ethernet/TCP on wired
