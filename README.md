@@ -82,6 +82,13 @@ network OTA, Wi-Fi provisioning, and selecting the built-in `modem_usb` or
 `modem_tcp` transport in openHop Repeater. No driver copying, Repeater patching,
 or modem-specific container image is required.
 
+## Acknowledgements
+
+Special thanks to [itk80](https://github.com/itk80) (KeenKJ), whose early
+firmware, modem-driver, integration, and hardware-support work laid the
+groundwork that became openHop Modem. Without his work, this project would
+not exist.
+
 ## Firmware asset builds
 
 The `Build Firmware Assets` GitHub workflow uses
