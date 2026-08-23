@@ -24,7 +24,7 @@ RouteAction classifyRoute(HttpRequest::Method method, const char* route) {
         if (std::strcmp(route, "/update") == 0) return RouteAction::NOT_FOUND;
         static const char* const managementRoutes[] = {
             "/api/config", "/api/reboot", "/reboot", "/hostname",
-            "/network", "/token", "/auth", "/gps",
+            "/network", "/token", "/auth", "/gps", "/dfu/ble",
         };
         for (const char* management : managementRoutes) {
             if (std::strcmp(route, management) == 0) return RouteAction::MANAGEMENT_POST;
@@ -45,6 +45,7 @@ RouteAction classifyRoute(HttpRequest::Method method, const char* route) {
 #include "rak4631_web_handlers.h"
 #include "runtime_stats.h"
 #include "w5100s_ethernet_transport.h"
+#include "w5100s_bounded_rx.h"
 #include "webui_shared.h"
 
 #include <Arduino.h>
@@ -70,7 +71,7 @@ constexpr const char* OTA_DISABLED_REASON =
     "incompatible or unverified; Ethernet OTA remains disabled. Use the "
     "board's USB serial DFU bootloader recovery path.";
 
-enum class ClientState : uint8_t { IDLE, READING, READY, WRITING, CLOSING };
+enum class ClientState : uint8_t { IDLE, READING, READY, WRITING };
 enum class SendState : uint8_t { IDLE, COMMAND_PENDING, ACK_PENDING };
 
 EthernetServer server(HTTP_PORT);
@@ -91,6 +92,7 @@ bool sendHeaderPhase = false;
 size_t sendLength = 0;
 BootloaderManager::DeferredTransition deferredTransition;
 Rak4631Config::Config managementConfig{};
+W5100sBoundedRx::Reader socketReader;
 
 std::string ipString(const IPAddress& ip) {
     if (ip == IPAddress(static_cast<uint32_t>(0))) return {};
@@ -131,6 +133,7 @@ WebUiShared::Model buildModel() {
     model.board = BOARD.name;
     model.firmware = runtime.firmwareVersion.c_str();
     model.hostname = Rak4631Config::getEffectiveHostname();
+    model.dfuBluetoothAddress = Rak4631Config::getDfuBluetoothAddress();
     model.connectedClientIp = TCPServer::getClientIP().c_str();
     model.uptimeSec = runtime.status.uptime_sec;
     model.dieTemperatureC = runtime.status.temp_c;
@@ -141,9 +144,9 @@ WebUiShared::Model buildModel() {
     model.capabilities.updateAvailable = false;
     model.capabilities.httpFirmwareUpload = false;
     model.capabilities.writableManagement = true;
-    // The exact installed bootloader must produce a visible BLE DFU target before
-    // this recovery control and route may be exposed.
-    model.capabilities.bleDfu = false;
+    // RAK-only recovery handoff. The external DFU app performs the actual upload;
+    // Ethernet /update and staged-image activation remain disabled.
+    model.capabilities.bleDfu = true;
     model.updateUnavailableReason = OTA_DISABLED_REASON;
 
     model.network.interfaceName = "Ethernet";
@@ -251,6 +254,7 @@ void closeListenerSockets() {
 
 void clearClientState(bool responseCompleted) {
     client = EthernetClient();
+    socketReader.clear();
     clientState = ClientState::IDLE;
     sendState = SendState::IDLE;
     sendLength = 0;
@@ -270,13 +274,12 @@ void closeClient(bool responseCompleted = false) {
         W5100.writeSnCR(socket, Sock_CLOSE);
         W5100.getSPI()->endTransaction();
     }
-    if (responseCompleted && socket < MAX_SOCK_NUM) {
-        clientState = ClientState::CLOSING;
-        sendState = SendState::IDLE;
-        sendLength = 0;
-        return;
-    }
-    clearClientState(false);
+    // SEND_OK confirms that the peer acknowledged the complete response. Once
+    // CLOSE is issued, release the deferred reboot/DFU immediately; waiting for
+    // SnSR::CLOSED can strand a successful save behind a wedged W5100S socket.
+    if (responseCompleted && socket < MAX_SOCK_NUM)
+        Serial.println("[HTTP/ETH] response acknowledged; close issued; transition released");
+    clearClientState(responseCompleted && socket < MAX_SOCK_NUM);
 }
 
 const char* reasonPhrase(int status) {
@@ -397,10 +400,6 @@ void dispatch() {
 }
 
 void writeOneChunk() {
-    if (!client || !client.connected()) {
-        closeClient();
-        return;
-    }
     if (static_cast<uint32_t>(millis() - responseStartedMs) >= RESPONSE_DEADLINE_MS) {
         closeClient();
         return;
@@ -408,6 +407,11 @@ void writeOneChunk() {
     const uint8_t socket = client.getSocketNumber();
     if (socket >= MAX_SOCK_NUM) {
         closeClient();
+        return;
+    }
+    bool receiveStalled = false;
+    if (!socketReader.connected() || !socketReader.settled(millis(), receiveStalled)) {
+        if (receiveStalled || !socketReader.connected()) closeClient();
         return;
     }
 
@@ -526,7 +530,7 @@ void end() {
 
 void loop() {
     // A transition is eligible only after the complete response was ACKed and
-    // its socket was explicitly closed, then after the bounded grace period.
+    // a socket-close command was issued, then after the bounded grace period.
     deferredTransition.poll(millis(), BootloaderManager::execute, nullptr);
     if (deferredTransition.committed()) return;
     if (!serverActive) return;
@@ -543,55 +547,38 @@ void loop() {
         Serial.println("[HTTP/ETH] IP restored; port 80 listener restarted");
     }
 
-    if (clientState == ClientState::CLOSING) {
-        const uint8_t socket = client.getSocketNumber();
-        if (socket >= MAX_SOCK_NUM) {
-            clearClientState(false);
-            return;
-        }
-        W5100.getSPI()->beginTransaction(SPI_ETHERNET_SETTINGS);
-        const uint8_t command = W5100.readSnCR(socket);
-        const uint8_t status = W5100.readSnSR(socket);
-        W5100.getSPI()->endTransaction();
-        if (command == 0 && status == SnSR::CLOSED) {
-            clearClientState(true);
-        } else if (static_cast<uint32_t>(millis() - responseStartedMs) >= RESPONSE_DEADLINE_MS) {
-            closeClient(false);
-        }
-        return;
-    }
+
     if (clientState == ClientState::WRITING) {
         writeOneChunk();
         return;
     }
     if (clientState == ClientState::READY) {
-        if (client.available() > 0) {
-            const int value = client.read();
-            if (value >= 0) {
-                const uint8_t byte = static_cast<uint8_t>(value);
-                handleParserResult(parser.feed(&byte, 1, millis()));
-            }
+        bool stalled = false;
+        if (!socketReader.settled(millis(), stalled)) {
+            if (stalled) closeClient();
             return;
         }
         dispatch();
         return;
     }
     if (clientState == ClientState::READING) {
-        if (!client || !client.connected()) {
-            parser.finish();
-            closeClient();
-            return;
-        }
         if (static_cast<uint32_t>(millis() - requestStartedMs) >= REQUEST_DEADLINE_MS) {
             queueError(408, "request deadline exceeded");
             return;
         }
-        if (client.available() > 0) {
-            const int value = client.read();
-            if (value >= 0) {
-                const uint8_t byte = static_cast<uint8_t>(value);
-                handleParserResult(parser.feed(&byte, 1, millis()));
-            }
+        uint8_t byte = 0;
+        const auto receive = socketReader.poll(millis(), byte);
+        if (receive == W5100sBoundedRx::PollResult::BYTE) {
+            handleParserResult(parser.feed(&byte, 1, millis()));
+            return;
+        }
+        if (receive == W5100sBoundedRx::PollResult::CLOSED) {
+            parser.finish();
+            closeClient();
+            return;
+        }
+        if (receive == W5100sBoundedRx::PollResult::STALLED) {
+            queueError(503, "Ethernet receive stalled");
             return;
         }
         handleParserResult(parser.poll(millis()));
@@ -601,6 +588,7 @@ void loop() {
     EthernetClient incoming = server.accept();
     if (!incoming) return;
     client = incoming;
+    socketReader.reset(client.getSocketNumber());
     if (!isLanAddress(client.remoteIP())) {
         // Source policy is evaluated before parsing Authorization.
         queueError(403, "LAN access only");

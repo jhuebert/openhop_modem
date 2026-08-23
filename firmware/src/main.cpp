@@ -1503,6 +1503,12 @@ void noteTransportFrameError(uint8_t err_code) {
 
 // ─── Setup ───────────────────────────────────────────────────
 void setup() {
+#if defined(BOARD_RAK4631_WISMESH_ETH)
+    // The RAK application does not run the Bluefruit SOC event task. Disable a
+    // bootloader-inherited SoftDevice before USB starts so InternalFS writes are
+    // synchronous instead of waiting forever for an undelivered flash event.
+    Rak4631Config::prepareFlashRuntime();
+#endif
     // PRG held ≥5s at boot → wipe Wi-Fi NVS and reboot. Must come before
     // other init so button sampling is clean.
     WifiManager::checkResetButton();

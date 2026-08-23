@@ -190,9 +190,13 @@ For the RAK4631, find the assigned address in the DHCP lease table and open
 Change the HTTP password and openHop TCP token from the page. Hostname,
 DHCP/static networking, TCP port/token, and optional compile-gated GPS settings
 are stored atomically; the page states when reboot is required. Port 80 is
-reserved for management. BLE DFU entry remains hidden until a real bootloader
-BLE DFU session and interrupted-transfer recovery are validated on the installed
-bootloader; use USB serial DFU recovery in the meantime. A tested
+reserved for management. The RAK-only **Bluetooth DFU** action closes the HTTP
+response and Ethernet socket before handing off to the installed Nordic BLE DFU
+bootloader. Then use a Nordic-compatible DFU app to select the bootloader's
+Bluetooth device and upload `firmware/rak4631_wismesh_eth/firmware.zip`. The
+Bluetooth name is bootloader-defined; do not require a fixed name. This path is
+alpha until a complete upload and interrupted-transfer recovery are validated
+on the installed bootloader, so keep USB serial DFU available. A tested
 RAK4630/RAK19003 proxy exposed only CDC in bootloader mode, not a UF2 disk, so
 do not assume UF2 mass storage on the production gateway without checking it.
 On that proxy, MeshCore's application-mode `RAK4631_OTA` service successfully

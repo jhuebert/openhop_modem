@@ -63,13 +63,19 @@ DecodeStatus decode(const uint8_t* data, size_t length, Config& output);
 // Returns false when the supplied record is too short or structurally invalid.
 bool rewriteIntegrity(uint8_t* data, size_t length);
 
-// RAK4631 InternalFS persistence API. The active in-memory configuration is
-// loaded once by begin(); callers should reboot after a successful save before
-// applying network, TCP port, or token changes.
+// RAK4631 dual-slot raw-flash persistence API. The active in-memory
+// configuration is loaded once by begin(); callers should reboot after a
+// successful save before applying network, TCP port, or token changes.
+// Call before USB/network initialization so the application-owned flash path
+// cannot wait forever for SoftDevice events that this firmware does not pump.
+bool prepareFlashRuntime();
 bool begin();
 const Config& getConfig();
 bool saveConfig(const Config& config);
 bool factoryReset();
 const char* getEffectiveHostname();
+// The installed RAK/Adafruit DFU bootloader advertises with the application
+// BLE address's least-significant byte incremented by one.
+const char* getDfuBluetoothAddress();
 
 }  // namespace Rak4631Config

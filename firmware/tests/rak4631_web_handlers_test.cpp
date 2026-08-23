@@ -217,7 +217,7 @@ void testExactDfuAndRebootContracts() {
     auto response = request("/dfu/ble", "", "", store);
     assert(response.status == 200);
     assert(response.transition == Transition::BLE_DFU);
-    assert(response.body == "{\"status\":\"entering_ble_dfu\",\"advertises_as\":\"bootloader-defined\"}");
+    assert(response.body == "{\"status\":\"entering_ble_dfu\",\"advertises_as\":\"4631_DFU\"}");
     assert(store.calls == 0);
 
     response = request("/dfu/ble", "application/json", "{}", store);
@@ -226,6 +226,14 @@ void testExactDfuAndRebootContracts() {
     assert(response.status == 404);
     response = request("/ble-dfu", "", "", store);
     assert(response.status == 404);
+    response = request("/dfu/ble", "", "", store, true,
+                       "http://attacker.example", "192.168.1.20");
+    assert(response.status == 403);
+    assert(response.transition == Transition::NONE);
+    response = request("/dfu/ble", "application/x-www-form-urlencoded", "", store, true,
+                       "http://192.168.1.20", "192.168.1.20");
+    assert(response.status == 200);
+    assert(response.transition == Transition::BLE_DFU);
 
     response = request("/reboot", "", "", store);
     assert(response.status == 200 && response.transition == Transition::REBOOT);

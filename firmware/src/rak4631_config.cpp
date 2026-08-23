@@ -305,10 +305,10 @@ bool rewriteIntegrity(uint8_t* data, size_t length) {
 
 #include "board_config.h"
 #include "compat.h"
+#include "rak4631_config_store.h"
 
-#include <Adafruit_LittleFS.h>
-#include <InternalFileSystem.h>
 #include <flash/flash_nrf5x.h>
+#include <nrf_sdm.h>
 
 #ifndef OPENHOP_ETH_TCP_PORT
 #define OPENHOP_ETH_TCP_PORT 5055
@@ -325,13 +325,9 @@ static_assert(sizeof(OPENHOP_ETH_HOSTNAME) - 1 <= Rak4631Config::MAX_TEXT_LENGTH
 static_assert(sizeof(OPENHOP_ETH_TOKEN) - 1 <= Rak4631Config::MAX_TEXT_LENGTH,
               "OPENHOP_ETH_TOKEN exceeds the persisted configuration limit");
 
-using namespace Adafruit_LittleFS_Namespace;
-
 namespace Rak4631Config {
 namespace {
 
-constexpr const char* CONFIG_PATH = "/openhop_eth.cfg";
-constexpr const char* TEMP_PATH = "/openhop_eth.tmp";
 Config makePlatformDefaults() {
     Config config = makeDefaults(OPENHOP_ETH_HOSTNAME, OPENHOP_ETH_TCP_PORT, OPENHOP_ETH_TOKEN);
 #if defined(PYMC_RAK4631_GPS_DEFAULT_ENABLED) && PYMC_RAK4631_GPS_DEFAULT_ENABLED
@@ -340,24 +336,10 @@ Config makePlatformDefaults() {
     return config;
 }
 Config activeConfig = makePlatformDefaults();
-bool filesystemReady = false;
+bool persistenceReady = false;
 bool initialized = false;
+bool flashRuntimeReady = false;
 char effectiveHostname[MAX_TEXT_LENGTH + 1] = {};
-constexpr uint32_t INTERNAL_FS_START = 0xED000;
-constexpr uint32_t INTERNAL_FS_SIZE = 0x7000;
-
-bool internalFsIsErased() {
-    uint8_t bytes[128];
-    for (uint32_t address = INTERNAL_FS_START;
-         address < INTERNAL_FS_START + INTERNAL_FS_SIZE;
-         address += sizeof(bytes)) {
-        if (flash_nrf5x_read(bytes, address, sizeof(bytes)) != sizeof(bytes)) return false;
-        for (uint8_t value : bytes) {
-            if (value != 0xff) return false;
-        }
-    }
-    return true;
-}
 
 void refreshEffectiveHostname() {
     sanitizeHostname(activeConfig.hostname, effectiveHostname);
@@ -370,57 +352,104 @@ void refreshEffectiveHostname() {
     sanitizeHostname(generated, effectiveHostname);
 }
 
-bool readPersisted(Config& config, DecodeStatus& status) {
-    File file(InternalFS);
-    if (!file.open(CONFIG_PATH, FILE_O_READ)) return false;
-    const size_t length = file.size();
-    if (length > MAX_ENCODED_SIZE) {
-        file.close();
-        status = DecodeStatus::BAD_LENGTH;
-        return true;
-    }
-    uint8_t bytes[MAX_ENCODED_SIZE]{};
-    const int count = file.read(bytes, length);
-    file.close();
-    if (count < 0 || static_cast<size_t>(count) != length) {
-        status = DecodeStatus::BAD_LENGTH;
-        return true;
-    }
-    status = decode(bytes, length, config);
-    return true;
+bool flashWritesAreSynchronous() {
+    uint8_t softDeviceEnabled = 1;
+    return flashRuntimeReady &&
+           sd_softdevice_is_enabled(&softDeviceEnabled) == NRF_SUCCESS &&
+           softDeviceEnabled == 0;
 }
+
+class NrfConfigFlash final : public Rak4631ConfigStore::Flash {
+public:
+    bool erasePage(uint32_t address) override {
+        if (!validSlot(address) || !flashWritesAreSynchronous()) return false;
+        flash_nrf5x_flush();
+        if (!flash_nrf5x_erase(address)) return false;
+        const uint8_t* page = reinterpret_cast<const uint8_t*>(address);
+        for (size_t i = 0; i < Rak4631ConfigStore::PAGE_SIZE; ++i) {
+            if (page[i] != 0xff) return false;
+        }
+        return true;
+    }
+
+    bool write(uint32_t address, const uint8_t* data, size_t length) override {
+        if (!validRange(address, length) || data == nullptr || length == 0 ||
+            (address & 3u) != 0 || (length & 3u) != 0 ||
+            !flashWritesAreSynchronous()) {
+            return false;
+        }
+        const int written =
+            flash_nrf5x_write(address, data, static_cast<uint32_t>(length));
+        flash_nrf5x_flush();
+        return written == static_cast<int>(length) &&
+               memcmp(reinterpret_cast<const void*>(address), data, length) == 0;
+    }
+
+    bool read(uint32_t address, uint8_t* data, size_t length) override {
+        if (!validRange(address, length) || data == nullptr || length == 0)
+            return false;
+        flash_nrf5x_flush();
+        return flash_nrf5x_read(data, address, static_cast<uint32_t>(length)) ==
+               static_cast<int>(length);
+    }
+
+private:
+    static bool validSlot(uint32_t address) {
+        return address == Rak4631ConfigStore::SLOT_A_ADDRESS ||
+               address == Rak4631ConfigStore::SLOT_B_ADDRESS;
+    }
+    static bool validRange(uint32_t address, size_t length) {
+        const uint32_t slot = address >= Rak4631ConfigStore::SLOT_B_ADDRESS
+                                  ? Rak4631ConfigStore::SLOT_B_ADDRESS
+                                  : Rak4631ConfigStore::SLOT_A_ADDRESS;
+        return validSlot(slot) && address >= slot &&
+               address <= slot + Rak4631ConfigStore::PAGE_SIZE &&
+               length <= slot + Rak4631ConfigStore::PAGE_SIZE - address;
+    }
+};
+
+NrfConfigFlash configFlash;
+Rak4631ConfigStore::Store configStore(configFlash);
 
 }  // namespace
 
+bool prepareFlashRuntime() {
+    uint8_t softDeviceEnabled = 0;
+    if (sd_softdevice_is_enabled(&softDeviceEnabled) != NRF_SUCCESS) {
+        flashRuntimeReady = false;
+        return false;
+    }
+    if (softDeviceEnabled != 0 && sd_softdevice_disable() != NRF_SUCCESS) {
+        flashRuntimeReady = false;
+        return false;
+    }
+    softDeviceEnabled = 1;
+    flashRuntimeReady =
+        sd_softdevice_is_enabled(&softDeviceEnabled) == NRF_SUCCESS &&
+        softDeviceEnabled == 0;
+    return flashRuntimeReady;
+}
+
 bool begin() {
-    if (initialized) return filesystemReady;
+    if (initialized) return persistenceReady;
     initialized = true;
     activeConfig = makePlatformDefaults();
     refreshEffectiveHostname();
 
-    // InternalFileSystem::begin() auto-erases on mount failure. Call the base
-    // mount-only implementation so a transient/corrupt mount cannot destroy
-    // configuration or other files. Initialize only demonstrably blank flash.
-    filesystemReady = InternalFS.Adafruit_LittleFS::begin();
-    if (!filesystemReady && internalFsIsErased()) {
-        Serial.println("[CFG/RAK] blank InternalFS; formatting first-use filesystem");
-        filesystemReady = InternalFS.format() && InternalFS.Adafruit_LittleFS::begin();
-    }
-    if (!filesystemReady) {
-        Serial.println("[CFG/RAK] InternalFS unavailable; using safe build defaults");
+    if (!flashWritesAreSynchronous()) {
+        Serial.println("[CFG/RAK] config flash disabled: asynchronous SoftDevice events are unavailable");
         return false;
     }
 
     Config loaded{};
-    DecodeStatus status = DecodeStatus::BAD_LENGTH;
-    if (!readPersisted(loaded, status)) {
-        Serial.println("[CFG/RAK] no persisted Ethernet config; using build defaults");
-        return true;
+    const Rak4631ConfigStore::LoadResult result = configStore.load(loaded);
+    if (result == Rak4631ConfigStore::LoadResult::IO_ERROR) {
+        Serial.println("[CFG/RAK] config flash read failed; using safe build defaults");
+        return false;
     }
-    if (status != DecodeStatus::OK) {
-        Serial.printf("[CFG/RAK] invalid persisted config (%u); using safe build defaults\n",
-                      static_cast<unsigned>(status));
-        // A corrupt record is isolated to this file. Do not format InternalFS.
+    persistenceReady = true;
+    if (result == Rak4631ConfigStore::LoadResult::EMPTY) {
+        Serial.println("[CFG/RAK] no persisted Ethernet config; using build defaults");
         return true;
     }
 
@@ -436,28 +465,15 @@ const Config& getConfig() {
 
 bool saveConfig(const Config& input) {
     if (!initialized) begin();
-    if (!filesystemReady) return false;
+    if (!persistenceReady || !flashWritesAreSynchronous()) return false;
 
     Config normalized = input;
     if (validateAndNormalize(normalized) != ValidationStatus::OK) return false;
-    uint8_t bytes[MAX_ENCODED_SIZE]{};
-    size_t length = 0;
-    if (!encode(normalized, bytes, sizeof(bytes), length)) return false;
-
-    if (InternalFS.exists(TEMP_PATH) && !InternalFS.remove(TEMP_PATH)) return false;
-    if (InternalFS.exists(TEMP_PATH)) return false;
-    File file(InternalFS);
-    if (!file.open(TEMP_PATH, FILE_O_WRITE)) return false;
-    const size_t written = file.write(bytes, length);
-    file.close();
-    if (written != length) {
-        InternalFS.remove(TEMP_PATH);
+    if (!configStore.save(normalized)) {
+        Serial.println("[CFG/RAK] verified raw config save failed");
         return false;
     }
-    if (!InternalFS.rename(TEMP_PATH, CONFIG_PATH)) {
-        InternalFS.remove(TEMP_PATH);
-        return false;
-    }
+    Serial.println("[CFG/RAK] raw config saved and verified; reboot response pending");
 
     // Deliberately keep activeConfig unchanged. Ethernet/TCP settings are a
     // boot snapshot and take effect only after the caller reboots.
@@ -466,15 +482,32 @@ bool saveConfig(const Config& input) {
 
 bool factoryReset() {
     if (!initialized) begin();
-    if (!filesystemReady) return false;
-    const bool primaryAbsentOrRemoved = !InternalFS.exists(CONFIG_PATH) || InternalFS.remove(CONFIG_PATH);
-    const bool tempAbsentOrRemoved = !InternalFS.exists(TEMP_PATH) || InternalFS.remove(TEMP_PATH);
-    return primaryAbsentOrRemoved && tempAbsentOrRemoved;
+    return persistenceReady && flashWritesAreSynchronous() && configStore.erase();
 }
 
 const char* getEffectiveHostname() {
     if (!initialized) begin();
     return effectiveHostname;
+}
+
+const char* getDfuBluetoothAddress() {
+    static char address[18]{};
+    if (address[0] == '\0') {
+        const uint32_t low = NRF_FICR->DEVICEADDR[0];
+        const uint32_t high = NRF_FICR->DEVICEADDR[1];
+        // RAK's Adafruit-derived bootloader calls sd_ble_gap_addr_get(), then
+        // increments addr[0] before open DFU advertising. Match that exact
+        // uint8_t operation (including wrap without carry).
+        const uint8_t dfuLowByte = static_cast<uint8_t>((low & 0xffU) + 1U);
+        snprintf(address, sizeof(address), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 static_cast<unsigned>((high >> 8) & 0xff),
+                 static_cast<unsigned>(high & 0xff),
+                 static_cast<unsigned>((low >> 24) & 0xff),
+                 static_cast<unsigned>((low >> 16) & 0xff),
+                 static_cast<unsigned>((low >> 8) & 0xff),
+                 static_cast<unsigned>(dfuLowByte));
+    }
+    return address;
 }
 
 }  // namespace Rak4631Config

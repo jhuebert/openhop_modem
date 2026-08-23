@@ -17,6 +17,7 @@
 #include "net_filter.h"
 #include "compat.h"
 #include "board_config.h"
+#include "w5100s_bounded_rx.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <RAK13800_W5100S.h>
@@ -470,6 +471,7 @@ namespace TCPServer {
     alignas(EthernetServer) static uint8_t serverStorage[sizeof(EthernetServer)];
     static EthernetServer* server = nullptr;
     static EthernetClient client;
+    static W5100sBoundedRx::Reader socketReader;
     static String requiredToken;
     static bool authenticated = false;
     static FrameParser parser;
@@ -525,7 +527,7 @@ namespace TCPServer {
     }
 
     static void sendToClient(uint8_t cmd, const uint8_t* payload, uint16_t len) {
-        if (!client || !client.connected()) return;
+        if (!client || !socketReader.connected()) return;
         if (txBusy()) {
             Serial.println("[TCP/ETH] TX queue busy; closing client");
             disconnectClient();
@@ -559,6 +561,7 @@ namespace TCPServer {
             boundedClose(client);
         }
         authenticated = false;
+        socketReader.clear();
         frameCount = 0;
         parser.reset();
         resetTx();
@@ -566,7 +569,7 @@ namespace TCPServer {
 
     static void writeOneChunk() {
         if (!txBusy()) return;
-        if (!client || !client.connected() ||
+        if (!client || !socketReader.connected() ||
             static_cast<uint32_t>(millis() - txStartedMs) >= TX_DEADLINE_MS) {
             disconnectClient();
             return;
@@ -574,6 +577,11 @@ namespace TCPServer {
         const uint8_t socket = client.getSocketNumber();
         if (socket >= MAX_SOCK_NUM) {
             disconnectClient();
+            return;
+        }
+        bool receiveStalled = false;
+        if (!socketReader.settled(millis(), receiveStalled)) {
+            if (receiveStalled) disconnectClient();
             return;
         }
 
@@ -732,7 +740,7 @@ namespace TCPServer {
             Serial.println("[TCP/ETH] IP restored; listener restarted");
         }
 
-        if (!client || !client.connected()) {
+        if (!client || !socketReader.connected()) {
             if (client || txBusy()) disconnectClient();
             EthernetClient incoming = server->accept();
             if (incoming) {
@@ -744,6 +752,7 @@ namespace TCPServer {
                     return;
                 }
                 client = incoming;
+                socketReader.reset(client.getSocketNumber());
                 parser.reset();
                 resetTx();
                 authenticated = false;
@@ -756,12 +765,21 @@ namespace TCPServer {
             }
         }
 
-        if (client && client.connected()) {
+        if (client && socketReader.connected()) {
             size_t processed = 0;
-            while (processed < RX_BYTES_PER_LOOP && client.available() && !txBusy()) {
-                uint8_t b = (uint8_t)client.read();
-                frameparser_feed(parser, b, TransportSource::TCP, onFrameOk, onFrameErr);
-                ++processed;
+            while (processed < RX_BYTES_PER_LOOP && !txBusy()) {
+                uint8_t byte = 0;
+                const auto receive = socketReader.poll(millis(), byte);
+                if (receive == W5100sBoundedRx::PollResult::BYTE) {
+                    frameparser_feed(parser, byte, TransportSource::TCP, onFrameOk, onFrameErr);
+                    ++processed;
+                    continue;
+                }
+                if (receive == W5100sBoundedRx::PollResult::CLOSED ||
+                    receive == W5100sBoundedRx::PollResult::STALLED) {
+                    disconnectClient();
+                }
+                break;
             }
             writeOneChunk();
         }
@@ -769,13 +787,13 @@ namespace TCPServer {
 
     bool isClientReady() {
         if (!EthernetManager::hasIP()) return false;
-        if (!client || !client.connected()) return false;
+        if (!client || !socketReader.connected()) return false;
         return !requiresAuth() || authenticated;
     }
 
     String getClientIP() {
         if (!EthernetManager::hasIP()) return String();
-        if (!client || !client.connected()) return String();
+        if (!client || !socketReader.connected()) return String();
         IPAddress addr = client.remoteIP();
         char buf[16];
         snprintf(buf, sizeof(buf), "%u.%u.%u.%u", addr[0], addr[1], addr[2], addr[3]);
@@ -784,7 +802,7 @@ namespace TCPServer {
 
     void write(const uint8_t* data, size_t len) {
         if (!EthernetManager::hasIP()) return;
-        if (!client || !client.connected()) return;
+        if (!client || !socketReader.connected()) return;
         if (!queueRaw(data, len)) {
             Serial.println("[TCP/ETH] TX queue overflow; closing client");
             disconnectClient();

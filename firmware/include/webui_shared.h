@@ -137,6 +137,7 @@ struct Model {
     std::string firmware;
     std::string hostname;
     std::string connectedClientIp;
+    std::string dfuBluetoothAddress;
     uint32_t uptimeSec = 0;
     int8_t dieTemperatureC = 0;
     Capabilities capabilities;

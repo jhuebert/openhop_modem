@@ -26,9 +26,7 @@ int main() {
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/token") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/auth") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/gps") == RouteAction::MANAGEMENT_POST);
-    // BLE DFU remains gated until the exact installed bootloader has produced
-    // and recovered from a real BLE DFU session on hardware.
-    assert(W5100sHttpServer::classifyRoute(Method::POST, "/dfu/ble") == RouteAction::NOT_FOUND);
+    assert(W5100sHttpServer::classifyRoute(Method::POST, "/dfu/ble") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/api/dfu/ble") == RouteAction::NOT_FOUND);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/ble-dfu") == RouteAction::NOT_FOUND);
     assert(W5100sHttpServer::classifyRoute(Method::GET, "/dfu/ble") == RouteAction::NOT_FOUND);

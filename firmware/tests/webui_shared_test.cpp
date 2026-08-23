@@ -54,6 +54,11 @@ Model makeEspModel() {
     model.radio.txPowerDbm = 22;
     model.radio.syncword = 0x12;
     model.radio.preambleLength = 16;
+    model.counters.rxPackets = 1234;
+    model.counters.txPackets = 5678;
+    model.counters.crcErrors = 9;
+    model.counters.lastRssiDbm = -87;
+    model.dieTemperatureC = 24;
     return model;
 }
 
@@ -125,6 +130,7 @@ void testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus() {
     model.capabilities.httpFirmwareUpload = false;
     model.capabilities.writableManagement = true;
     model.capabilities.bleDfu = true;
+    model.dfuBluetoothAddress = "C1:23:45:67:89:AC";
     model.updateUnavailableReason =
         "Ethernet firmware update is unavailable until the installed bootloader handoff is verified.";
     model.network.interfaceName = "Ethernet";
@@ -165,7 +171,8 @@ void testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus() {
     assertContains(html, "action='/auth'");
     assertContains(html, "action='/reboot'");
     assertContains(html, "action='/dfu/ble'");
-    assertContains(html, "name is defined by the installed bootloader");
+    assertContains(html, "Expected <code>4631_DFU</code> address: <code>C1:23:45:67:89:AC</code>");
+    assertContains(html, "different from the application address");
     assertContains(html, "Ethernet and port 5055 will disconnect");
     assertContains(html, "return confirm(");
 
@@ -196,6 +203,22 @@ void testCapabilitiesControlOptionalSectionsAndFields() {
     assertContains(config, "\"gps_available\":false");
 }
 
+void testStatsRenderIntegralValuesWithoutFormatFragments() {
+    const std::string stats = renderStatsPage(makeEspModel());
+    assertContains(stats, "Spreading factor</span><span class='v'>SF8");
+    assertContains(stats, "Coding rate</span><span class='v'>4/8");
+    assertContains(stats, "TX power</span><span class='v'>22 dBm");
+    assertContains(stats, "Preamble</span><span class='v'>16");
+    assertContains(stats, "RX packets</span><span class='v'>1234");
+    assertContains(stats, "TX packets</span><span class='v'>5678");
+    assertContains(stats, "CRC errors</span><span class='v'>9");
+    assertContains(stats, "Last RSSI</span><span class='v'>-87 dBm");
+    assertContains(stats, "Die temperature</span><span class='v'>24 C");
+    assertContains(stats, "Port</span><span class='v'>5055");
+    assertNotContains(stats, "<span class='v'>lu");
+    assertNotContains(stats, "<span class='v'>ld");
+}
+
 }  // namespace
 
 int main() {
@@ -205,6 +228,7 @@ int main() {
     testEspRootPreservesCurrentControls();
     testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus();
     testCapabilitiesControlOptionalSectionsAndFields();
+    testStatsRenderIntegralValuesWithoutFormatFragments();
     std::cout << "webui shared renderer tests passed\n";
     return 0;
 }

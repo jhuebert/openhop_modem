@@ -257,3 +257,26 @@ Response:
   "status": "rebooting"
 }
 ```
+
+### `POST /dfu/ble` (RAK4631 only)
+
+Enters the installed Nordic Bluetooth DFU bootloader. The request must have an
+empty body and is protected by the same Basic authentication and same-origin
+browser checks as other management actions. The transition is not executed until
+the complete HTTP response is acknowledged and the W5100S socket is closed.
+
+This endpoint does not accept firmware data and does not enable Ethernet
+`/update`. After the RAK disconnects, use a Nordic-compatible DFU app to select
+the bootloader's Bluetooth device and upload the nRF52 `firmware.zip`. The BLE
+name is defined by the installed bootloader and must not be assumed.
+
+```bash
+curl -u admin:YOUR_PASSWORD -X POST -d '' http://192.168.1.42/dfu/ble
+```
+
+```json
+{
+  "status": "entering_ble_dfu",
+  "advertises_as": "bootloader-defined"
+}
+```

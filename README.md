@@ -231,10 +231,15 @@ the same password as its `--auth` token. Examples:
 #       --upload-port <host> --upload-flags="--auth=password"
 ```
 
-The RAK4631 stores its password in the CRC-protected InternalFS config rather
-than ESP NVS. Its `/update` and BLE-DFU HTTP controls remain hidden until the
-exact installed bootloader and interrupted-update recovery behavior pass the
-hardware gate. RAK JSON responses expose `tcp_token_set`, never the token.
+The RAK4631 stores its password in a CRC-protected, power-loss-safe dual-slot
+record in bootloader-preserved nRF52 configuration pages rather than ESP NVS
+or LittleFS. Its authenticated RAK-only **Bluetooth DFU** control hands off to
+the installed Nordic BLE bootloader after the HTTP response is acknowledged and
+the Ethernet socket is closed; a separate Nordic-compatible DFU app uploads the
+nRF52 `firmware.zip`. The bootloader's Bluetooth name is not fixed. This remains
+an alpha recovery path until a complete upload and interrupted-transfer recovery
+pass hardware testing. Ethernet `/update` and staged activation remain disabled.
+RAK JSON responses expose `tcp_token_set`, never the token.
 
 Pre-v0.8 firmware used `heltec:<tcp_token>` on `/update` only — that
 scheme is gone, the same credential pair now covers every HTTP path.

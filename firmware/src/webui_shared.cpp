@@ -12,15 +12,22 @@ std::string nullableString(const std::string& value) { return value.empty() ? "n
 
 template <typename T>
 std::string number(T value) {
+    static_assert(std::is_integral<T>::value && !std::is_same<T, bool>::value,
+                  "number() requires a non-boolean integer");
+    using Unsigned = typename std::make_unsigned<T>::type;
+    const bool negative = std::is_signed<T>::value && value < 0;
+    Unsigned magnitude = static_cast<Unsigned>(value);
+    if (negative) magnitude = static_cast<Unsigned>(0) - magnitude;
+
     char buffer[32];
-    if constexpr (std::is_signed<T>::value) {
-        std::snprintf(buffer, sizeof(buffer), "%lld",
-                      static_cast<long long>(value));
-    } else {
-        std::snprintf(buffer, sizeof(buffer), "%llu",
-                      static_cast<unsigned long long>(value));
-    }
-    return buffer;
+    char* cursor = buffer + sizeof(buffer);
+    *--cursor = '\0';
+    do {
+        *--cursor = static_cast<char>('0' + (magnitude % 10));
+        magnitude = static_cast<Unsigned>(magnitude / 10);
+    } while (magnitude != 0);
+    if (negative) *--cursor = '-';
+    return cursor;
 }
 
 std::string fixed(double value, int precision) {
@@ -221,7 +228,10 @@ std::string renderRootPage(const Model& m) {
     body += "<details><summary>Reboot</summary><div class='inside'><p>Restart the modem without changing any settings.</p><form method='POST' action='/reboot'><button type='submit'>Reboot modem</button></form></div></details>";
     }
     if (m.capabilities.bleDfu) {
-        body += "<details><summary>BLE DFU Recovery</summary><div class='inside'><p>Enter the installed Nordic BLE OTA bootloader. Its BLE name is defined by the installed bootloader.</p><form method='POST' action='/dfu/ble' onsubmit=\"return confirm('Enter BLE DFU recovery? Ethernet and port 5055 will disconnect until DFU completes or the device resets.');\"><button class='danger' type='submit'>Enter BLE DFU</button></form><p class='m'>No firmware data is uploaded by this action.</p></div></details>";
+        body += "<details><summary>Bluetooth DFU</summary><div class='inside'><p>Enter the installed Nordic Bluetooth DFU bootloader. Ethernet and port 5055 will disconnect. Then use a Nordic-compatible DFU app to select <code>4631_DFU</code> and upload the nRF52 <code>firmware.zip</code>.</p>";
+        if (!m.dfuBluetoothAddress.empty())
+            body += "<p class='m'>Expected <code>4631_DFU</code> address: <code>" + htmlEscape(m.dfuBluetoothAddress) + "</code>. The DFU bootloader advertises an address different from the application address.</p>";
+        body += "<form method='POST' action='/dfu/ble' onsubmit=\"return confirm('Enter Bluetooth DFU? Ethernet and port 5055 will disconnect until DFU completes or the device resets.');\"><button class='danger' type='submit'>Enter Bluetooth DFU</button></form><p class='m'>This action only enters DFU mode; it does not upload firmware over Ethernet.</p></div></details>";
     }
     body += "</body></html>";
     return body;

@@ -351,7 +351,7 @@ Response handlePost(const Request& request, SaveCallback save, void* context) {
     if (std::strcmp(request.route, "/dfu/ble") == 0) {
         if (!emptyActionBody(request))
             return error(400, "BLE DFU request must not include a body");
-        return success("{\"status\":\"entering_ble_dfu\",\"advertises_as\":\"bootloader-defined\"}",
+        return success("{\"status\":\"entering_ble_dfu\",\"advertises_as\":\"4631_DFU\"}",
                        Transition::BLE_DFU);
     }
     if (std::strcmp(request.route, "/reboot") == 0 ||
