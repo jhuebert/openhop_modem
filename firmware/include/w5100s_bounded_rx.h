@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
 
 namespace W5100sBoundedRx {
 

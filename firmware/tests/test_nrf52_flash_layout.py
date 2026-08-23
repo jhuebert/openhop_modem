@@ -85,7 +85,7 @@ class FlashLayoutTest(unittest.TestCase):
         metadata = json.loads(
             (FIRMWARE / "boards/rak4631_wismesh_eth.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(metadata["build"]["usb_product"], "WisMesh-OpenHop-Ethernet")
+        self.assertEqual(metadata["build"]["usb_product"], "WisMesh-openHop-Ethernet")
         self.assertNotIn("pymc", metadata["build"]["usb_product"].lower())
 
     def test_repository_linker_caps_application_before_staging(self) -> None:

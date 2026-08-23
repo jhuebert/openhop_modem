@@ -1,4 +1,5 @@
 #include "rak4631_config.h"
+#include "legacy_rak4631_build_flags.h"
 
 #include <cstring>
 
@@ -330,7 +331,7 @@ namespace {
 
 Config makePlatformDefaults() {
     Config config = makeDefaults(OPENHOP_ETH_HOSTNAME, OPENHOP_ETH_TCP_PORT, OPENHOP_ETH_TOKEN);
-#if defined(PYMC_RAK4631_GPS_DEFAULT_ENABLED) && PYMC_RAK4631_GPS_DEFAULT_ENABLED
+#if defined(OPENHOP_RAK4631_GPS_DEFAULT_ENABLED) && OPENHOP_RAK4631_GPS_DEFAULT_ENABLED
     config.gpsEnabled = true;
 #endif
     return config;

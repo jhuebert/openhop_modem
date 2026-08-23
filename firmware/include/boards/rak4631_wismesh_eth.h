@@ -27,6 +27,8 @@
 // =============================================================
 #pragma once
 
+#include "legacy_rak4631_build_flags.h"
+
 // W5100S / RAK13800 wiring on WisBlock IO slot.
 #ifndef OPENHOP_ETH_POWER_PIN
 #  define OPENHOP_ETH_POWER_PIN 34   // WB_IO2 — RAK13800 power enable
@@ -56,28 +58,28 @@
 // MeshCore's RAK4631 board implementation and the official RAK variant both
 // identify WB_A0 as raw pin 5 / P0.05 / AIN3. These hooks permit a downstream
 // hardware revision to disable or recalibrate the divider without source edits.
-#ifndef PYMC_RAK4631_BATTERY_ADC_PIN
-#  define PYMC_RAK4631_BATTERY_ADC_PIN 5
+#ifndef OPENHOP_RAK4631_BATTERY_ADC_PIN
+#  define OPENHOP_RAK4631_BATTERY_ADC_PIN 5
 #endif
-#ifndef PYMC_RAK4631_BATTERY_ADC_REFERENCE_MV
-#  define PYMC_RAK4631_BATTERY_ADC_REFERENCE_MV 3000
+#ifndef OPENHOP_RAK4631_BATTERY_ADC_REFERENCE_MV
+#  define OPENHOP_RAK4631_BATTERY_ADC_REFERENCE_MV 3000
 #endif
-#ifndef PYMC_RAK4631_BATTERY_DIVIDER_NUMERATOR
-#  define PYMC_RAK4631_BATTERY_DIVIDER_NUMERATOR 173
+#ifndef OPENHOP_RAK4631_BATTERY_DIVIDER_NUMERATOR
+#  define OPENHOP_RAK4631_BATTERY_DIVIDER_NUMERATOR 173
 #endif
-#ifndef PYMC_RAK4631_BATTERY_DIVIDER_DENOMINATOR
-#  define PYMC_RAK4631_BATTERY_DIVIDER_DENOMINATOR 100
+#ifndef OPENHOP_RAK4631_BATTERY_DIVIDER_DENOMINATOR
+#  define OPENHOP_RAK4631_BATTERY_DIVIDER_DENOMINATOR 100
 #endif
 
 // Serial1 is authoritatively mapped to MCU RX=15/TX=16 by the RAK4631
 // Arduino variant, and RAK documents Slot A as UART-capable. Leave support off
 // by default because UART presence cannot prove that a GPS is fitted and no
 // safe module power/reset control is established for this Ethernet product.
-#ifndef PYMC_RAK4631_GPS_SERIAL_ENABLE
-#  define PYMC_RAK4631_GPS_SERIAL_ENABLE 0
+#ifndef OPENHOP_RAK4631_GPS_SERIAL_ENABLE
+#  define OPENHOP_RAK4631_GPS_SERIAL_ENABLE 0
 #endif
-#ifndef PYMC_RAK4631_GPS_DEFAULT_ENABLED
-#  define PYMC_RAK4631_GPS_DEFAULT_ENABLED PYMC_RAK4631_GPS_SERIAL_ENABLE
+#ifndef OPENHOP_RAK4631_GPS_DEFAULT_ENABLED
+#  define OPENHOP_RAK4631_GPS_DEFAULT_ENABLED OPENHOP_RAK4631_GPS_SERIAL_ENABLE
 #endif
 
 inline const BoardConfig BOARD = {
@@ -125,11 +127,11 @@ inline const BoardConfig BOARD = {
     // Take eight nonblocking samples. Reject samples outside a
     // deliberately broad LiPo range; five valid readings are required.
     {
-        PYMC_RAK4631_BATTERY_ADC_PIN, -1, true, 0.0f,
+        OPENHOP_RAK4631_BATTERY_ADC_PIN, -1, true, 0.0f,
         0, 0x02, 0,
-        PYMC_RAK4631_BATTERY_ADC_REFERENCE_MV, 12,
-        PYMC_RAK4631_BATTERY_DIVIDER_NUMERATOR,
-        PYMC_RAK4631_BATTERY_DIVIDER_DENOMINATOR,
+        OPENHOP_RAK4631_BATTERY_ADC_REFERENCE_MV, 12,
+        OPENHOP_RAK4631_BATTERY_DIVIDER_NUMERATOR,
+        OPENHOP_RAK4631_BATTERY_DIVIDER_DENOMINATOR,
         8, 2500, 5000, 5,
     },
 
@@ -152,7 +154,7 @@ inline const BoardConfig BOARD = {
     -1,      // pin_protocol_uart_tx
     921600,  // protocol_uart_baud
 
-#if PYMC_RAK4631_GPS_SERIAL_ENABLE
+#if OPENHOP_RAK4631_GPS_SERIAL_ENABLE
     15,     // pin_gps_uart_rx — Serial1 / Slot A UART RX
     16,     // pin_gps_uart_tx — Serial1 / Slot A UART TX
 #else

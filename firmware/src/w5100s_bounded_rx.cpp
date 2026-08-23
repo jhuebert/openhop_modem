@@ -1,6 +1,6 @@
 #include "w5100s_bounded_rx.h"
 
-#if defined(PYMC_ETHERNET_W5100S)
+#if defined(OPENHOP_ETHERNET_W5100S)
 
 #include <Arduino.h>
 #include <RAK13800_W5100S.h>

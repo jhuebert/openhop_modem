@@ -212,6 +212,7 @@ namespace WifiManager {
     inline void  saveConfig(const Config&) {}
     inline void  factoryReset()      {}
 }
+#endif
 #if defined(OPENHOP_ETHERNET_W5100S)
 #  include "w5100s_ethernet_transport.h"
 #  include "w5100s_http_server.h"
@@ -1790,7 +1791,7 @@ void setup() {
     lastAutoCycleMs = millis();   // first auto-cycle fires SCREEN_AUTO_CYCLE_MS after splash
 
 #if defined(ARDUINO_ARCH_ESP32) || \
-    (defined(PYMC_RAK4631_GPS_SERIAL_ENABLE) && PYMC_RAK4631_GPS_SERIAL_ENABLE)
+    (defined(OPENHOP_RAK4631_GPS_SERIAL_ENABLE) && OPENHOP_RAK4631_GPS_SERIAL_ENABLE)
     GPSManager::begin(WifiManager::getConfig().gpsEnabled);
 #endif
 
@@ -1917,7 +1918,7 @@ void loop() {
 #endif
     if (otaStarted) OTAManager::loop();
 #if defined(ARDUINO_ARCH_ESP32) || \
-    (defined(PYMC_RAK4631_GPS_SERIAL_ENABLE) && PYMC_RAK4631_GPS_SERIAL_ENABLE)
+    (defined(OPENHOP_RAK4631_GPS_SERIAL_ENABLE) && OPENHOP_RAK4631_GPS_SERIAL_ENABLE)
     GPSManager::loop();
 #endif
 
