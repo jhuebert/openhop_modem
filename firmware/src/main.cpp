@@ -184,6 +184,18 @@ class OpenHopSX1262 : public SX1262 {
 public:
     using SX1262::SX1262;
 
+    int16_t startReceive() override {
+        // RadioLib's default RX IRQ set omits PREAMBLE_DETECTED. The passive
+        // reception guard needs that flag latched before HEADER_VALID so a
+        // TX/CAD request cannot abort a frame during its preamble.
+        return SX1262::startReceive(
+            RADIOLIB_SX126X_RX_TIMEOUT_INF,
+            RADIOLIB_IRQ_RX_DEFAULT_FLAGS |
+                (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED),
+            RADIOLIB_IRQ_RX_DEFAULT_MASK,
+            0);
+    }
+
     int16_t applyRegisterPatch08B5() {
         uint8_t value = 0;
         int16_t state = readRegister(0x08B5, &value, 1);
@@ -972,12 +984,14 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             constexpr uint8_t  CAD_AUTO_RETRIES   = 2;
             constexpr uint32_t CAD_TIMEOUT_MS     = 200;   // worst-case SF12 ≈ 100 ms
             bool channel_clear = false;
+            bool reception_busy = false;
             for (uint8_t attempt = 0; attempt < CAD_AUTO_RETRIES; attempt++) {
                 // Passive guard first: a latched in-progress reception
-                // is authoritative — no scan, no standby, no abort.
+                // is authoritative — return busy without a scan, standby,
+                // or RX restart that would abort/discard the frame.
                 if (isReceivingPacket()) {
-                    delay(50 + (micros() % 150));
-                    continue;
+                    reception_busy = true;
+                    break;
                 }
                 ChannelScanConfig_t cfg = {};
                 cfg.cad.symNum    = cadSymNum;
@@ -987,14 +1001,25 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 cfg.cad.irqFlags  = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS;
                 cfg.cad.irqMask   = RADIOLIB_IRQ_CAD_DEFAULT_MASK;
                 dio1Flag = false;
-                if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) break;
+                if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) {
+                    dio1Flag = false;
+                    break;
+                }
                 uint32_t cad_t0 = millis();
-                while (!dio1Flag && (millis() - cad_t0) < CAD_TIMEOUT_MS) {
+                uint16_t irq = 0;
+                while ((millis() - cad_t0) < CAD_TIMEOUT_MS) {
+                    irq = radio.getIrqFlags();
+                    if (irq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
                     compatWdtReset();
                     delay(2);
                 }
-                uint16_t irq = radio.getIrqFlags();
-                radio.clearIrqFlags(RADIOLIB_IRQ_CAD_DEFAULT_FLAGS);
+                radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
+                                    RADIOLIB_SX126X_IRQ_CAD_DETECTED);
+                dio1Flag = false;
+                // A stale RX_DONE software flag must never count as CAD
+                // completion. Only the chip's CAD_DONE flag proves the scan
+                // finished and makes a clear/busy verdict meaningful.
+                if (!(irq & RADIOLIB_SX126X_IRQ_CAD_DONE)) break;
                 bool busy = (irq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) != 0;
                 if (!busy) { channel_clear = true; break; }
                 // Random backoff 50-200 ms to prevent step-locking with
@@ -1004,6 +1029,13 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 // Arduino random() is unseeded — and identical — on the
                 // nRF52 targets.)
                 delay(50 + (micros() % 150));
+            }
+            // The passive guard already answered without changing radio
+            // state; leave RX and its terminal IRQ untouched for loop().
+            if (reception_busy) {
+                isTxActive = false;
+                sendError(ERR_CHANNEL_BUSY, src);
+                break;
             }
             if (!channel_clear) {
                 LOG_R_WARN("auto-CAD: channel busy after retries, abort TX");
@@ -1124,6 +1156,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         }
 
         if (state != RADIOLIB_ERR_NONE) {
+            dio1Flag = false;
             sendError(ERR_CAD_FAILED, src);
             startReceive();
             break;
@@ -1132,12 +1165,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         // 500 ms easily covers a legitimate CAD scan at any SF+symNum we use.
         const uint32_t CAD_TIMEOUT_MS = 500;
         uint32_t cadStart = millis();
-        while (!dio1Flag && (millis() - cadStart) < CAD_TIMEOUT_MS) {
+        uint16_t cadIrq = 0;
+        while ((millis() - cadStart) < CAD_TIMEOUT_MS) {
+            cadIrq = radio.getIrqFlags();
+            if (cadIrq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
             compatWdtReset();
             delay(1);
         }
 
-        if (!dio1Flag) {
+        if (!(cadIrq & RADIOLIB_SX126X_IRQ_CAD_DONE)) {
             // CAD_DONE never fired — treat as failure and clean up the chip
             // before the next request. Don't block the repeater's LBT
             // forever; reporting failure lets the host decide.
@@ -1145,23 +1181,17 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             radio.standby();
             delay(5);
             applyConfig(currentConfig);
+            dio1Flag = false;
             sendError(ERR_CAD_FAILED, src);
             startReceive();
             break;
         }
 
-        int scanResult = radio.getChannelScanResult();
+        radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
+                            RADIOLIB_SX126X_IRQ_CAD_DETECTED);
         dio1Flag = false;
         uint8_t result[1];
-        if (scanResult == RADIOLIB_LORA_DETECTED) {
-            result[0] = 1;
-        } else if (scanResult == RADIOLIB_CHANNEL_FREE) {
-            result[0] = 0;
-        } else {
-            sendError(ERR_CAD_FAILED, src);
-            startReceive();
-            break;
-        }
+        result[0] = (cadIrq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) ? 1 : 0;
         sendFrame(CMD_CAD_RESP, result, 1, src);
         // Back to RX right away: the scan parked the radio in standby, and
         // the host probes every ~200 ms for its whole LBT budget — without
