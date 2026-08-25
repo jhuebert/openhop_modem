@@ -55,7 +55,7 @@ inline const BoardConfig BOARD = {
     // static_gpios below rather than in the toggled rx/tx pins.
     {-1, 0, -1, -1, true},
 
-    -1,    // pin_lora_tx_led
+    36,    // pin_lora_tx_led = P1.04 / RAK19007 blue user LED
     true,  // lora_tx_led_active_high
 
     // No display in this firmware target (oled_display.cpp is not

@@ -537,6 +537,17 @@ static void setTxLed(bool on) {
 static void txLedInitAtBoot() {
     setTxLed(false);
 }
+
+static void setRak3401ReadyLed(bool on) {
+#if defined(BOARD_RAK3401)
+    // RAK19007 green user LED: steady ON means the radio initialized and
+    // continuous receive mode started successfully. Keep it OFF on boot and
+    // on every setup failure path.
+    writeOutputPin(PIN_LED1, on);
+#else
+    (void)on;
+#endif
+}
 static void rfSwitchEnHighAfterSettle() {
     if (!BOARD.has_lora_radio) return;
     if (BOARD.rf_switch.en_pin < 0) return;
@@ -1501,6 +1512,7 @@ void setup() {
     // before SPI traffic begins.
     rfSwitchEnLowAtBoot();
     txLedInitAtBoot();
+    setRak3401ReadyLed(false);
 
 #if defined(BOARD_HELTEC_T114)
     // Restore non-volatile T114 state BEFORE radio init so we know
@@ -1679,6 +1691,7 @@ void setup() {
         }
 
         radioReady = true;
+        setRak3401ReadyLed(true);
         }
     } else {
         Serial.println("[BOOT] no LoRa radio on this board — running as Wi-Fi/Ethernet bridge only");
