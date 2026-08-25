@@ -1644,8 +1644,16 @@ void setup() {
                    (int)BOARD.pin_lora_rst, (int)BOARD.pin_lora_busy,
                    (int)BOARD.pin_lora_sck, (int)BOARD.pin_lora_miso,
                    (int)BOARD.pin_lora_mosi);
-        int state = radio.begin();
-        LOG_R_INFO("radio.begin -> %d", state);
+        // RadioLib's no-argument SX1262::begin() assumes a 1.6 V TCXO.
+        // Supply the board policy during initialization so targets such as
+        // RAK3401 bring up their 1.8 V TCXO before the first radio commands.
+        const float initialTcxoVoltage = BOARD.use_dio3_tcxo
+                                             ? BOARD.tcxo_voltage
+                                             : 0.0f;
+        int state = radio.begin(434.0f, 125.0f, 9, 7,
+                                RADIOLIB_SX126X_SYNC_WORD_PRIVATE,
+                                10, 8, initialTcxoVoltage);
+        LOG_R_INFO("radio.begin (TCXO=%.1f V) -> %d", initialTcxoVoltage, state);
         if (state != RADIOLIB_ERR_NONE) {
             oled.showError("SX1262 init fail!");
             while (Serial.availableForWrite() == 0) delay(10);
@@ -1653,10 +1661,6 @@ void setup() {
             Serial.println("[BOOT] SX1262 init failed — continuing with Wi-Fi/config portal only");
             radioReady = false;
         } else {
-        if (BOARD.use_dio3_tcxo) {
-            state = radio.setTCXO(BOARD.tcxo_voltage);
-            LOG_R_INFO("setTCXO(%.1f V) -> %d", BOARD.tcxo_voltage, state);
-        }
         rfSwitchConfigureRadio();
         configureBoardRadioOptions();
 
