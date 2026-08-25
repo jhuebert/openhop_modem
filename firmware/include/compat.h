@@ -51,4 +51,14 @@ inline void     compatGetMac(uint8_t mac[6]) {
 inline uint32_t compatFreeHeap()     { return 0; }
 inline uint32_t compatMinFreeHeap()  { return 0; }
 
+// ESP32 ships analogReadMilliVolts() with per-chip eFuse calibration;
+// the Adafruit nRF52 BSP only offers a raw analogRead(). The SAADC
+// default is the internal 0.6 V reference with 1/6 gain, i.e. a 3.6 V
+// full-scale range, so at 12-bit resolution one LSB is 3600/4096 mV.
+// Boards apply their own divider ratio through BOARD.battery.multiplier.
+inline uint32_t analogReadMilliVolts(uint8_t pin) {
+    analogReadResolution(12);
+    return ((uint32_t)analogRead(pin) * 3600U) / 4096U;
+}
+
 #endif  // ARDUINO_ARCH_ESP32

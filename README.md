@@ -29,6 +29,7 @@ openHop application and its access to USB or the modem's network.
 | **Heltec T114**                                                                                             | nRF52840                     | bare SX1262 + TFT 135×240  | **none** — USB-CDC + UART only |
 | **RAK4631 USB**                                                                                             | nRF52840 (RAK4631)           | SX1262 in-module           | **none** — USB-CDC only |
 | **RAK4631 WisMesh Ethernet**                                                                                | nRF52840 (RAK4631) + RAK13800/W5100S | SX1262 in-module     | **Ethernet** (W5100S) — TCP port 5055, USB-CDC fallback |
+| **RAK3401**                                                                                                 | nRF52840 (RAK4631 core) + RAK13302   | SX1262 + SKY66122 ~1 W FEM | **none** — USB-CDC only |
 | **Seeed XIAO nRF52840 + Wio-SX1262**                                                                        | XIAO nRF52840                | bare SX1262                | **none** — USB-CDC only |
 
 openHop Core connects to the modem through `USBLoRaRadio` or
@@ -53,8 +54,8 @@ Host running openHop Core                         openHop Modem
 The host can be any platform supported by the openHop application and
 its USB or network transport. Wi-Fi is available on supported ESP32
 boards; wired Ethernet is available on P4-Nano, EtherMesh-1W, and the
-RAK4631 WisMesh Ethernet target. T114, RAK4631 USB, and XIAO nRF52 Wio use
-USB-CDC only.
+RAK4631 WisMesh Ethernet target. T114, RAK4631 USB, RAK3401, and XIAO nRF52
+Wio use USB-CDC only.
 
 - **USB mode** — cable, instant, no provisioning; ideal for single-board setups.
 - **Network TCP mode** — Wi-Fi/TCP on ESP32 boards, or Ethernet/TCP on wired
@@ -66,7 +67,7 @@ USB-CDC only.
 
 ## Project layout
 
-- **`firmware/`** — PlatformIO tree, nineteen environments sharing one source.
+- **`firmware/`** — PlatformIO tree, twenty environments sharing one source.
   Each board lives in `include/boards/<env>.h`; `platformio.ini` picks
   one via `-DBOARD_<NAME>`. Prebuilt artifacts (ESP32: combined
   `firmware.factory.bin` plus `bootloader.bin / partitions.bin / firmware.bin`;
@@ -128,6 +129,7 @@ Per-board highlights (full pin numbers in the headers, mDNS prefix is
 - **Heltec T114** — nRF52840 + bare SX1262 + ST7789 TFT 135×240, **no Wi-Fi/TCP/network OTA**; USB-CDC + UART transport only, OTA via Adafruit nRF52 DFU (USB) or in-app `CMD_OTA_*` over the protocol transport.
 - **RAK4631 USB** — RAK4631 nRF52840 core on a compatible WisBlock base, using the same proven internal SX1262 pins, DIO2 RF-switch policy, SPIM2 radio bus, and 22 dBm ceiling as the Ethernet build. The `rak4631_usb` environment omits the RAK13800 dependency and all W5100S/TCP/network initialization; native USB-CDC is the only modem transport.
 - **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, no Wi-Fi, and no network OTA (flash via USB/DFU). The TCP server on port 5055 is the primary transport; USB-CDC is available as a fallback. The TCP token defaults blank/open, matching other fresh network firmware. On web-enabled ESP32 builds the token can be changed in the device web UI; this nRF52 Ethernet-only target has no web UI/HTTP stack, so its W5100S TCP token, port, and hostname are currently set by `OPENHOP_ETH_*` build flags. The hostname is stored for status reporting only — the W5100S library does not support DHCP option 12. Commands that persist state (standby, auto-CAD, display name) are accepted but volatile — there is no LittleFS/NodeState on this target, so they reset on reboot. Display commands (SET_DISPLAY_NAME) succeed as no-op stubs.
+- **RAK3401** — RAKwireless nRF52840 WisBlock core + RAK13302 LoRa module (SX1262 driving a Skyworks SKY66122-11 front end, ~1 W). Ported from the MeshCore `rak3401` variant: unlike the RAK4631 targets the SX1262 sits on the WisBlock SPI slot (P0.03 SCK / P0.29 MISO / P0.30 MOSI / P0.26 NSS), not on the core module's internal bus. WB_IO2 (P0.34) gates the 3V3_S rail and the RAK13302's 5 V PA boost, WB_IO3 (P0.21) drives the SKY66122 CSD+CPS pair — both held HIGH for the life of the device — and SX1262 DIO2 drives CTX so TX/RX switching is hardware-timed. SX1262 drive is capped at 22 dBm into the PA, with the 0x08B5 sensitivity patch and boosted RX gain enabled. LiPo voltage is read from P0.05 through a 1.73:1 divider. **No Wi-Fi/TCP/network OTA**, no display; native USB-CDC transport only, OTA via Adafruit nRF52 DFU or in-app `CMD_OTA_*`.
 - **Seeed XIAO nRF52840 + Wio-SX1262** (SKU 102010710) — XIAO nRF52840 + bare SX1262 on the Wio-SX1262 carrier, BLE 5.0 hardware unused, **no Wi-Fi/TCP/network OTA**, no display; native USB-CDC transport only, OTA via Adafruit nRF52 DFU (UF2 disk on double-click reset) or in-app `CMD_OTA_*`.
 
 ### E22P RF switch (Ikoka, P4-Nano + E22P)

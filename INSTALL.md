@@ -28,6 +28,7 @@ your board:
 | RAK4631 USB | `rak4631_usb` | n/a | none — USB-CDC only |
 | RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (hostname is status-only) | **Ethernet** (W5100S, TCP port 5055) — no mDNS, no network OTA |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
+| RAKwireless RAK3401 (RAK13302 1 W front end) | `rak3401` | n/a | none — USB-CDC only |
 
 The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
 [pioarduino fork](https://github.com/pioarduino/platform-espressif32)
@@ -75,7 +76,7 @@ bootloader flow; there are no ESP32-style bootloader/partition offsets for
 these targets.
 
 `<env>` for nRF52 is one of: `heltec_t114`, `xiao_nrf52_wio`,
-`rak4631_usb`, or `rak4631_wismesh_eth`.
+`rak4631_usb`, `rak4631_wismesh_eth`, or `rak3401`.
 
 A direct `pio run -e xiao_nrf52_wio` source build also creates
 `.pio/build/xiao_nrf52_wio/firmware.uf2` for drag-and-drop flashing.
@@ -151,7 +152,7 @@ release RESET, release BOOT.
 
 **Only ESP32-family targets with the OTA/HTTP stack** support network
 OTA. nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`,
-`rak4631_wismesh_eth`)
+`rak4631_wismesh_eth`, `rak3401`)
 must be flashed via USB with `pio run -e <env> -t upload` (Adafruit
 nRF52 DFU). The `rak4631_wismesh_eth` target has Ethernet for openHop TCP
 only — it has no HTTP/OTA stack, and the `OTAManager` stub is a no-op.
