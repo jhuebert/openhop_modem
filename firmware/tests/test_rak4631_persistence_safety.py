@@ -36,6 +36,11 @@ class Rak4631PersistenceSafetyTest(unittest.TestCase):
         self.assertIn("CONFIG_REGION_START = 0xED000u", store_header)
         self.assertIn("CONFIG_REGION_END = 0xF4000u", store_header)
 
+    def test_save_path_does_not_block_on_usb_serial_logging(self) -> None:
+        text = CONFIG_SOURCE.read_text(encoding="utf-8")
+        save = text[text.index("bool saveConfig("):text.index("bool factoryReset(")]
+        self.assertNotIn("Serial.", save)
+
     def test_reboot_and_dfu_do_not_touch_internal_filesystem(self) -> None:
         bootloader = BOOTLOADER_SOURCE.read_text(encoding="utf-8")
         execute = bootloader[bootloader.index("void execute("):]

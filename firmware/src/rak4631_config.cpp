@@ -470,11 +470,7 @@ bool saveConfig(const Config& input) {
 
     Config normalized = input;
     if (validateAndNormalize(normalized) != ValidationStatus::OK) return false;
-    if (!configStore.save(normalized)) {
-        Serial.println("[CFG/RAK] verified raw config save failed");
-        return false;
-    }
-    Serial.println("[CFG/RAK] raw config saved and verified; reboot response pending");
+    if (!configStore.save(normalized)) return false;
 
     // Deliberately keep activeConfig unchanged. Ethernet/TCP settings are a
     // boot snapshot and take effect only after the caller reboots.

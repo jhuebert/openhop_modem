@@ -277,8 +277,6 @@ void closeClient(bool responseCompleted = false) {
     // SEND_OK confirms that the peer acknowledged the complete response. Once
     // CLOSE is issued, release the deferred reboot/DFU immediately; waiting for
     // SnSR::CLOSED can strand a successful save behind a wedged W5100S socket.
-    if (responseCompleted && socket < MAX_SOCK_NUM)
-        Serial.println("[HTTP/ETH] response acknowledged; close issued; transition released");
     clearClientState(responseCompleted && socket < MAX_SOCK_NUM);
 }
 

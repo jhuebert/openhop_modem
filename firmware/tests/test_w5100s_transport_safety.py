@@ -42,6 +42,11 @@ class W5100sTransportSafetyTest(unittest.TestCase):
         )
         self.assertIn("W5100.writeSnCR(socket, Sock_CLOSE)", http)
 
+    def test_response_commit_does_not_block_on_usb_serial_logging(self) -> None:
+        http = HTTP_SOURCE.read_text(encoding="utf-8")
+        close_client = http[http.index("void closeClient("):http.index("const char* reasonPhrase(")]
+        self.assertNotIn("Serial.", close_client)
+
 
 if __name__ == "__main__":
     unittest.main()
