@@ -129,7 +129,7 @@ Per-board highlights (full pin numbers in the headers, mDNS prefix is
 - **WaveShare ESP32-P4-Nano** — RISC-V P4 + C6 + IP101GRI Ethernet PHY + off-board E22, runtime ETH-or-Wi-Fi (never both, see below).
 - **Heltec T114** — nRF52840 + bare SX1262 + ST7789 TFT 135×240, **no Wi-Fi/TCP/network OTA**; USB-CDC + UART transport only, OTA via Adafruit nRF52 DFU (USB) or in-app `CMD_OTA_*` over the protocol transport.
 - **RAK4631 USB** — RAK4631 nRF52840 core on a compatible WisBlock base, using the same proven internal SX1262 pins, DIO2 RF-switch policy, SPIM2 radio bus, and 22 dBm ceiling as the Ethernet build. The `rak4631_usb` environment omits the RAK13800 dependency and all W5100S/TCP/network initialization; native USB-CDC is the only modem transport.
-- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, and no Wi-Fi. TCP port 5055 is the primary transport; USB-CDC is the fallback. Port 80 serves the authenticated WebUI/config API, but `/update` is absent and generated `firmware.ota` packages remain validation/staging artifacts rather than installable Ethernet OTA. The WebUI/API persist hostname, DHCP/static network values, TCP port/token, HTTP password, and compile-gated GPS state without echoing secret values. The default HTTP login is `admin` / `password`; change both the HTTP password and blank/open TCP token before trusting a shared LAN. The product USB descriptor is `WisMesh-openHop-Ethernet`; reselect any stale by-id serial path after flashing. A browser DFU session and interrupted-transfer recovery remain hardware validation gates, so the UI does not expose BLE DFU entry.
+- **RAK4631 WisMesh Ethernet** — RAK4631 nRF52840 core module + RAK13800 W5100S Ethernet on the WisBlock IO slot. It has its own PlatformIO board JSON and product-specific variant under `firmware/variants/RAK4631_WisMesh_Ethernet/`, separate SPIM instances for Ethernet (SPIM3) and LoRa (SPIM2), no display, and no Wi-Fi. TCP port 5055 is the primary transport; USB-CDC is the fallback. Port 80 serves the authenticated WebUI/config API, but `/update` is absent and generated `firmware.ota` packages are non-installable staging artifacts because no Ethernet OTA route consumes them. The WebUI/API persist hostname, DHCP/static network values, TCP port/token, HTTP password, and compile-gated GPS state without echoing secret values. The default HTTP login is `admin` / `password`; change both the HTTP password and blank/open TCP token before trusting a shared LAN. The product USB descriptor is `WisMesh-openHop-Ethernet`; reselect any stale by-id serial path after flashing. Hardware validation covers W5100S TCP, the authenticated WebUI/config API, hostname and static-network persistence, automatic reboot and HTTP recovery after saves, and complete browser-initiated BLE DFU uploads.
 - **Seeed XIAO nRF52840 + Wio-SX1262** (SKU 102010710) — XIAO nRF52840 + bare SX1262 on the Wio-SX1262 carrier, BLE 5.0 hardware unused, **no Wi-Fi/TCP/network OTA**, no display; native USB-CDC transport only, OTA via Adafruit nRF52 DFU (UF2 disk on double-click reset) or in-app `CMD_OTA_*`.
 
 RAK4631 battery reporting uses the source-backed `WB_A0` mapping
@@ -236,9 +236,10 @@ record in bootloader-preserved nRF52 configuration pages rather than ESP NVS
 or LittleFS. Its authenticated RAK-only **Bluetooth DFU** control hands off to
 the installed Nordic BLE bootloader after the HTTP response is acknowledged and
 the Ethernet socket is closed; a separate Nordic-compatible DFU app uploads the
-nRF52 `firmware.zip`. The bootloader's Bluetooth name is not fixed. This remains
-an alpha recovery path until a complete upload and interrupted-transfer recovery
-pass hardware testing. Ethernet `/update` and staged activation remain disabled.
+nRF52 `firmware.zip`. The bootloader's Bluetooth name is not fixed. Complete BLE
+DFU uploads are validated on the production gateway; keep USB serial DFU
+available for interrupted-transfer recovery. Ethernet `/update` and staged
+activation remain disabled.
 RAK JSON responses expose `tcp_token_set`, never the token.
 
 Pre-v0.8 firmware used `heltec:<tcp_token>` on `/update` only — that
@@ -291,9 +292,8 @@ CRC-16/CCITT (poly 0x1021, init 0xFFFF) over CMD+LEN+PAYLOAD.
 | 0xFF | PING              | —                                     |
 
 The RAK4631 staged writer is not connected to `CMD_OTA_*` or HTTP `/update`.
-Those update commands/routes must be treated as unsupported on that target
-until a compatible bootloader handoff and interrupted-update recovery path are
-verified on recoverable hardware.
+Those update commands and routes are disabled and unsupported on that target;
+use the generated `firmware.zip` with BLE or USB DFU instead.
 
 ### Modem → Host
 

@@ -26,7 +26,7 @@ your board:
 | MeshSmith EtherMesh-1W | `ethermesh_1w` | `ethermesh-1w-<mac3>.local` | **Ethernet** |
 | Heltec T114 | `heltec_t114` | n/a | none — USB-CDC + UART only |
 | RAK4631 USB | `rak4631_usb` | n/a | none — USB-CDC only |
-| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; Ethernet OTA disabled; RAK13800 path is hardware-test/alpha until physically validated |
+| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; Ethernet OTA disabled |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
 
 The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
@@ -161,9 +161,9 @@ OTA. nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`,
 `rak4631_wismesh_eth`)
 must be flashed via USB with `pio run -e <env> -t upload` (Adafruit
 nRF52 DFU). The RAK4631 does have an authenticated HTTP management stack,
-but `/update` is absent. Its generated `firmware.ota` is validation/staging
-groundwork only and is not installable until the exact bootloader and recovery
-contract pass hardware testing.
+but `/update` is absent. Its generated `firmware.ota` is packaging/staging
+groundwork only; no supported update route installs it. Use the generated
+`firmware.zip` with BLE or USB DFU instead.
 
 Once the board is on the LAN (Wi-Fi STA or Ethernet — ESP32 only) and
 visible via mDNS:
@@ -194,9 +194,9 @@ reserved for management. The RAK-only **Bluetooth DFU** action closes the HTTP
 response and Ethernet socket before handing off to the installed Nordic BLE DFU
 bootloader. Then use a Nordic-compatible DFU app to select the bootloader's
 Bluetooth device and upload `firmware/rak4631_wismesh_eth/firmware.zip`. The
-Bluetooth name is bootloader-defined; do not require a fixed name. This path is
-alpha until a complete upload and interrupted-transfer recovery are validated
-on the installed bootloader, so keep USB serial DFU available. A tested
+Bluetooth name is bootloader-defined; do not require a fixed name. Complete BLE
+DFU uploads are validated on the production gateway. Keep USB serial DFU
+available for recovery from an interrupted transfer. A tested
 RAK4630/RAK19003 proxy exposed only CDC in bootloader mode, not a UF2 disk, so
 do not assume UF2 mass storage on the production gateway without checking it.
 On that proxy, MeshCore's application-mode `RAK4631_OTA` service successfully
@@ -261,12 +261,13 @@ the modem on an untrusted or shared network. The firmware rejects non-LAN
 source addresses, but that is not a substitute for local authentication.
 
 Wired targets use DHCP unless their board configuration says otherwise. The
-RAK4631/W5100S target has no mDNS or HTTP management stack; find its address in
-the DHCP lease table and configure its TCP defaults at build time with the
-canonical `OPENHOP_ETH_*` flags. Older `PYMC_ETH_*` overrides remain accepted
-as compatibility aliases so existing custom builds do not silently lose their
-TCP token or hardware policy; when both forms are supplied, `OPENHOP_ETH_*`
-wins.
+RAK4631/W5100S target has no mDNS; find its address in the DHCP lease table,
+then use its authenticated WebUI on port 80 to configure the hostname, DHCP or
+static network settings, HTTP password, and openHop TCP token. The canonical
+`OPENHOP_ETH_*` build flags remain available for custom defaults. Older
+`PYMC_ETH_*` overrides remain accepted as compatibility aliases so existing
+custom builds do not silently lose their TCP token or hardware policy; when
+both forms are supplied, `OPENHOP_ETH_*` wins.
 
 ## 4. Configure openHop Repeater
 
