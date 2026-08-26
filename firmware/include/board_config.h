@@ -72,10 +72,22 @@ struct BatterySenseConfig {
     int8_t pin;                 // ADC pin, -1 when no battery sense exists
     int8_t enable_pin;          // optional divider/ADC gate, -1 when always on
     bool   enable_active_high;
-    float  multiplier;          // raw pin voltage -> pack voltage
+    float  multiplier;          // ESP calibrated pin millivolts -> pack millivolts
     uint8_t fuel_gauge_i2c_addr = 0;      // MAX17048-style fuel gauge, 0=none
     uint8_t fuel_gauge_vcell_reg = 0x02;  // VCELL register (78.125 uV/LSB)
     uint8_t fuel_gauge_crate_reg = 0;     // CRATE register, 0=not exposed
+
+    // Raw-ADC conversion for platforms without analogReadMilliVolts(). A zero
+    // field leaves this path unsupported. Divider values form an exact rational
+    // scale, avoiding host/firmware floating-point drift.
+    uint32_t adc_reference_mv = 0;
+    uint8_t adc_resolution_bits = 0;
+    uint32_t adc_divider_numerator = 0;
+    uint32_t adc_divider_denominator = 0;
+    uint8_t sample_count = 0;
+    uint16_t minimum_plausible_mv = 0;
+    uint16_t maximum_plausible_mv = 0;
+    uint8_t minimum_valid_samples = 0;
 };
 
 struct WifiAntennaSwitchConfig {
@@ -304,6 +316,8 @@ extern const BoardConfig BOARD;
 #  include "boards/rak4631_wismesh_eth.h"
 #elif defined(BOARD_RAK4631_USB)
 #  include "boards/rak4631_usb.h"
+#elif defined(BOARD_RAK3401)
+#  include "boards/rak3401.h"
 #elif defined(BOARD_STATION_G2)
 #  include "boards/station_g2.h"
 #elif defined(BOARD_LILYGO_TBEAM_S3_SUPREME)
@@ -311,5 +325,5 @@ extern const BoardConfig BOARD;
 #elif defined(BOARD_STATION_G3)
 #  include "boards/station_g3.h"
 #else
-#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_RAK4631_USB / -DBOARD_STATION_G2 / -DBOARD_LILYGO_TBEAM_S3_SUPREME / -DBOARD_STATION_G3 to platformio.ini build_flags"
+#  error "No board selected — add one of -DBOARD_HELTEC_V3 / -DBOARD_HELTEC_V4 / -DBOARD_HELTEC_V42 / -DBOARD_HELTEC_V43 / -DBOARD_IKOKA_STICK / -DBOARD_LILYGO_T3S3 / -DBOARD_RAK3112_WISMESH / -DBOARD_ESP32_P4_NANO / -DBOARD_ETHERMESH_1W / -DBOARD_HELTEC_T114 / -DBOARD_HELTEC_TRACKER_V2 / -DBOARD_XIAO_WIO_SX1262 / -DBOARD_PHOTON_1W_XIAO_ESP32C6 / -DBOARD_XIAO_NRF52_WIO / -DBOARD_RAK4631_WISMESH_ETH / -DBOARD_RAK4631_USB / -DBOARD_RAK3401 / -DBOARD_STATION_G2 / -DBOARD_LILYGO_TBEAM_S3_SUPREME / -DBOARD_STATION_G3 to platformio.ini build_flags"
 #endif
