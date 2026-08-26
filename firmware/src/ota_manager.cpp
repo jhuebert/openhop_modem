@@ -1181,7 +1181,6 @@ static void handleStats() {
     body += "<div class='kv'><span class='k'>TX power</span><span class='v'>" + String(snap.radio.power_dbm) + " dBm</span></div>";
     body += "<div class='kv'><span class='k'>Syncword</span><span class='v'>0x" + String(snap.radio.syncword, HEX) + "</span></div>";
     body += "<div class='kv'><span class='k'>Preamble</span><span class='v'>" + String(snap.radio.preamble_len) + "</span></div>";
-    body += "<div class='kv'><span class='k'>Auto CAD</span><span class='v'>" + String(snap.autoCadEnabled ? "On" : "Off") + "</span></div>";
     if (RFFrontEnd::hasPaModeControl()) {
         body += "<div class='kv'><span class='k'>Station G3 PA mode</span><span class='v'>" +
                 String(RFFrontEnd::isPaHighPowerEnabled() ? "Higher" : "Lower") + "</span></div>";

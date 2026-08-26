@@ -273,7 +273,6 @@ std::string renderStatsPage(const Model& m) {
         appendKv(body, "TX power", number(m.radio.txPowerDbm) + " dBm");
         appendKv(body, "Syncword", hexByte(m.radio.syncword));
         appendKv(body, "Preamble", number(m.radio.preambleLength));
-        appendKv(body, "Auto CAD", m.radio.autoCadEnabled ? "On" : "Off");
         body += "</div>";
     }
     body += "<h3>Counters</h3><div class='grid'>";
