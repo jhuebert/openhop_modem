@@ -1492,7 +1492,7 @@ static void handleUpdateResult() {
     } else {
         body = String(F("FAIL — ")) + Update.errorString();
     }
-    httpServer->send(ok ? 200 : 500, "text/plain", body);
+    httpServer->send(ok ? 200 : 500, "text/plain; charset=utf-8", body);
     if (ok) {
         delay(500);
         ESP.restart();
