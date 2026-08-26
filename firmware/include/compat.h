@@ -22,6 +22,7 @@ inline int      compatResetReason()  { return (int)esp_reset_reason(); }
 inline void     compatGetMac(uint8_t mac[6]) { esp_efuse_mac_get_default(mac); }
 inline uint32_t compatFreeHeap()     { return (uint32_t)ESP.getFreeHeap(); }
 inline uint32_t compatMinFreeHeap()  { return (uint32_t)ESP.getMinFreeHeap(); }
+inline float    compatReadCpuTemperature() { return temperatureRead(); }
 
 #else  // nRF52 / non-ESP32
 
@@ -50,5 +51,22 @@ inline void     compatGetMac(uint8_t mac[6]) {
 }
 inline uint32_t compatFreeHeap()     { return 0; }
 inline uint32_t compatMinFreeHeap()  { return 0; }
+inline float    compatReadCpuTemperature() {
+#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(ARDUINO_NRF52_ADAFRUIT)
+    return readCPUTemperature();
+#else
+    return __builtin_nanf("");
+#endif
+}
+
+// ESP32 ships analogReadMilliVolts() with per-chip eFuse calibration;
+// the Adafruit nRF52 BSP only offers a raw analogRead(). The SAADC
+// default is the internal 0.6 V reference with 1/6 gain, i.e. a 3.6 V
+// full-scale range, so at 12-bit resolution one LSB is 3600/4096 mV.
+// Boards apply their own divider ratio through BOARD.battery.multiplier.
+inline uint32_t analogReadMilliVolts(uint8_t pin) {
+    analogReadResolution(12);
+    return ((uint32_t)analogRead(pin) * 3600U) / 4096U;
+}
 
 #endif  // ARDUINO_ARCH_ESP32

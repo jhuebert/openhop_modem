@@ -89,8 +89,8 @@ inline const BoardConfig BOARD = {
     true,  // use_dio3_tcxo
     1.8f,  // tcxo_voltage — 32 MHz TCXO on Wio-SX1262
 
-    -1,     // sx126x_current_limit_ma
-    false,  // sx126x_rx_boosted_gain
+    140,    // sx126x_current_limit_ma
+    true,   // sx126x_rx_boosted_gain
     false,  // sx126x_register_patch
 
     true,   // has_lora_radio

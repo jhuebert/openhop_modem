@@ -26,8 +26,9 @@ your board:
 | MeshSmith EtherMesh-1W | `ethermesh_1w` | `ethermesh-1w-<mac3>.local` | **Ethernet** |
 | Heltec T114 | `heltec_t114` | n/a | none — USB-CDC + UART only |
 | RAK4631 USB | `rak4631_usb` | n/a | none — USB-CDC only |
-| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (hostname is status-only) | **Ethernet** (W5100S, TCP port 5055) — no mDNS, no network OTA |
+| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; WebUI OTA disabled; Bluetooth DFU OTA supported |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
+| RAKwireless RAK3401 (RAK13302 1 W front end) | `rak3401` | n/a | none — USB-CDC only |
 
 The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
 [pioarduino fork](https://github.com/pioarduino/platform-espressif32)
@@ -36,14 +37,18 @@ toolchain; first build will fetch the platform package once.
 
 ### 1a. Browser flasher (recommended)
 
-Use the openHop browser flasher for supported ESP32-family boards:
+Use the openHop browser flasher for supported modem boards:
 
 <https://flasher.openhop.dev/>
 
-Pick your board, connect it over USB, and choose **Install** / **Update** from
-the browser. Use the manual esptool, PlatformIO, or nRF52 DFU flows below when
-you are building local firmware, recovering a board manually, or using a target
-that is not yet published in the flasher.
+Pick your board, connect it over USB, and flash from the browser. For a local
+RAK4631 build, choose **Custom Firmware** and select
+`firmware/rak4631_wismesh_eth/firmware.zip`. Stop anything using the serial
+port, click **Enter DFU mode**, and select the application port. Then click
+**Flash** and select the newly appearing `WisBlock RAK4631` bootloader port. If
+the DFU button does nothing, quickly press RESET twice; do not hold it. Use the
+manual esptool, PlatformIO, or nRF52 DFU flows below for recovery or targets not
+published in the flasher.
 
 ### 1b. Prebuilt firmware binaries (no PlatformIO)
 
@@ -70,12 +75,15 @@ a generic hand-written multi-image command for a fresh P4 install.
 
 nRF52 targets ship `firmware.hex`, `firmware.zip`, `firmware.uf2`, and
 `SHA256SUMS.txt` in `firmware/<env>/` after the firmware asset workflow runs.
+The RAK target also includes `firmware.ota` for the currently disabled staged
+Ethernet OTA design; use `firmware.zip`, not `firmware.ota`, with the browser
+flasher.
 Use the ZIP with Adafruit nRF52 DFU, or double-click reset and use the board
 bootloader flow; there are no ESP32-style bootloader/partition offsets for
 these targets.
 
 `<env>` for nRF52 is one of: `heltec_t114`, `xiao_nrf52_wio`,
-`rak4631_usb`, or `rak4631_wismesh_eth`.
+`rak4631_usb`, `rak4631_wismesh_eth`, or `rak3401`.
 
 A direct `pio run -e xiao_nrf52_wio` source build also creates
 `.pio/build/xiao_nrf52_wio/firmware.uf2` for drag-and-drop flashing.
@@ -147,14 +155,18 @@ double-tap RESET, or hold BOOT while plugging USB. ESP32-P4-Nano
 download mode: hold **BOOT (Key1)**, briefly press **RESET (Key2)**,
 release RESET, release BOOT.
 
-### 1d. OTA over the network (after the first flash, no cable)
+### 1d. OTA updates after the first flash
 
-**Only ESP32-family targets with the OTA/HTTP stack** support network
-OTA. nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`,
-`rak4631_wismesh_eth`)
-must be flashed via USB with `pio run -e <env> -t upload` (Adafruit
-nRF52 DFU). The `rak4631_wismesh_eth` target has Ethernet for openHop TCP
-only — it has no HTTP/OTA stack, and the `OTAManager` stub is a no-op.
+**Only ESP32-family targets with the OTA/HTTP stack** support WebUI firmware
+upload. Most nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`, and
+`rak3401`)
+use USB with `pio run -e <env> -t upload` (Adafruit nRF52 DFU). The RAK4631
+WisMesh Ethernet Gateway is the exception: it supports OTA updates through its
+working Bluetooth DFU flow. WebUI `/update` remains absent because safe staged
+activation and recovery would require a custom openHop Modem bootloader, which
+is not currently planned. Its generated `firmware.ota` is therefore
+packaging/staging groundwork only. Use the generated `firmware.zip` for
+Bluetooth DFU OTA; USB DFU remains available as a recovery path.
 
 Once the board is on the LAN (Wi-Fi STA or Ethernet — ESP32 only) and
 visible via mDNS:
@@ -175,6 +187,21 @@ The HTTP OTA page uses Basic Auth with username `admin` and default
 password `password`; change it from the OTA page after first network boot.
 Rollback is **not** automatic on a broken image — keep the USB cable
 as a recovery fallback.
+
+For the RAK4631, find the assigned address in the DHCP lease table and open
+`http://<rak-ip>/`. The initial HTTP credentials are `admin` / `password`.
+Change the HTTP password and openHop TCP token from the page. Hostname,
+DHCP/static networking, TCP port/token, and optional compile-gated GPS settings
+are stored atomically; the page states when reboot is required. Port 80 is
+reserved for management. The RAK-only **Bluetooth DFU** action closes the HTTP
+response and Ethernet socket before handing off to the installed Nordic BLE DFU
+bootloader. Then use a Nordic-compatible DFU app to select the bootloader's
+Bluetooth device and upload `firmware/rak4631_wismesh_eth/firmware.zip`. The
+Bluetooth name is bootloader-defined; do not require a fixed name. Complete BLE
+DFU uploads are validated on the production gateway, making this the supported
+OTA update path for deployed units. Keep USB serial DFU available for recovery
+from an interrupted transfer. Do not assume the production gateway exposes a
+UF2 mass-storage disk; use its BLE DFU target or USB serial DFU port.
 
 ### Adding a new board
 
@@ -220,18 +247,27 @@ Connect a phone or laptop, open `http://192.168.4.1`, select the LAN, enter its
 password, and choose **Save & Restart**. You can also configure Wi-Fi and the TCP
 token from the device web UI after it joins the LAN.
 
+> **Security note — network TCP token:** fresh firmware defaults to an empty
+> TCP token, so port 5055 is open to anyone on the same LAN segment until
+> you set one. The firmware still filters non-RFC1918/link-local/loopback
+> source addresses, but on a shared LAN an empty token is only safe on an
+> isolated network. On web-enabled firmware, including the RAK4631 W5100S
+> Ethernet target, set/change the TCP token from the authenticated device web
+> UI. RAK JSON responses expose only whether a token is set, never its value.
+
 The modem protocol listens on TCP port `5055`. Fresh firmware defaults to an
 empty token, which permits any client on the local LAN. Set a token before using
 the modem on an untrusted or shared network. The firmware rejects non-LAN
 source addresses, but that is not a substitute for local authentication.
 
 Wired targets use DHCP unless their board configuration says otherwise. The
-RAK4631/W5100S target has no mDNS or HTTP management stack; find its address in
-the DHCP lease table and configure its TCP defaults at build time with the
-canonical `OPENHOP_ETH_*` flags. Older `PYMC_ETH_*` overrides remain accepted
-as compatibility aliases so existing custom builds do not silently lose their
-TCP token or hardware policy; when both forms are supplied, `OPENHOP_ETH_*`
-wins.
+RAK4631/W5100S target has no mDNS; find its address in the DHCP lease table,
+then use its authenticated WebUI on port 80 to configure the hostname, DHCP or
+static network settings, HTTP password, and openHop TCP token. The canonical
+`OPENHOP_ETH_*` build flags remain available for custom defaults. Older
+`PYMC_ETH_*` overrides remain accepted as compatibility aliases so existing
+custom builds do not silently lose their TCP token or hardware policy; when
+both forms are supplied, `OPENHOP_ETH_*` wins.
 
 ## 4. Configure openHop Repeater
 
@@ -316,7 +352,7 @@ To package an existing tag locally without uploading:
 
 ```bash
 python3 firmware/tools/package_release_assets.py \
-    --tag v1.1.0 --output-dir /tmp/openhop-release
+    --tag v1.2.0 --output-dir /tmp/openhop-release
 (cd /tmp/openhop-release && sha256sum -c *-SHA256SUMS.txt)
 ```
 

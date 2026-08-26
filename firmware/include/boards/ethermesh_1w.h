@@ -53,7 +53,9 @@ inline const BoardConfig BOARD = {
 
     .battery = { .pin = -1 },
 
-    .max_tx_power_dbm = 30,
+    // RadioLib configures the SX1262 drive level, not the E22P module's
+    // amplified antenna-side output. The external PA supplies the gain.
+    .max_tx_power_dbm = 22,
 
     .use_dio3_tcxo = true,
     .tcxo_voltage  = 1.8f,

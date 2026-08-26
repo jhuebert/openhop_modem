@@ -66,6 +66,7 @@ inline const BoardConfig BOARD = {
 
     // Goal by default: radio.rxgain on + radio.fem.rxgain off.
     .sx126x_rx_boosted_gain = true,
+    .sx126x_register_patch = true,
 
     .has_lora_radio = true,
     .has_wifi       = true,

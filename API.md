@@ -156,6 +156,13 @@ Station G3 example:
 
 The PA and Station G3 LNA fields are omitted on unsupported variants.
 
+RAK4631 WisMesh Ethernet security differences:
+
+- `tcp_token` is never returned. The response contains `tcp_token_set` instead.
+- When serial GPS support is explicitly compiled in, the response also contains
+  `gps_enabled` and `gps_available`. Ordinary RAK builds leave GPS unavailable.
+- The HTTP password is never returned on any platform.
+
 ### `POST /api/config`
 
 Updates saved config and reboots the modem.
@@ -172,6 +179,7 @@ Accepted top-level fields:
 - `station_g3_external_lna_enabled` — Station G3 only; enables or bypasses the
   receive-only external LNA on GPIO10. The setting applies immediately,
   persists across reboots, and never enables the LNA during TX.
+- `gps_enabled` on RAK builds where GPS support was explicitly compiled in
 
 `network` fields:
 - `use_static_ip`
@@ -188,6 +196,9 @@ Notes:
 - if `use_static_ip` is `true`, `static_ip`, `subnet`, and `gateway` must be valid
 - unsupported variants reject Station G3 PA/LNA fields rather than ignoring them
 - a successful request always reboots the modem
+- RAK rejects unsupported Wi-Fi antenna, Heltec LNA, GPIO, and GPS-mode fields
+  instead of silently discarding them
+- RAK responses report only `tcp_token_set`; they never echo the submitted token
 
 Example:
 
@@ -236,7 +247,7 @@ Reboots the modem immediately.
 Example:
 
 ```bash
-curl -u admin:YOUR_PASSWORD -X POST http://192.168.1.42/api/reboot
+curl -u admin:YOUR_PASSWORD -X POST -d '' http://192.168.1.42/api/reboot
 ```
 
 Response:
@@ -244,5 +255,31 @@ Response:
 ```json
 {
   "status": "rebooting"
+}
+```
+
+### `POST /dfu/ble` (RAK4631 only)
+
+Enters the installed Nordic Bluetooth DFU bootloader. The request must have an
+empty body and is protected by the same Basic authentication and same-origin
+browser checks as other management actions. The transition is not executed until
+the complete HTTP response is acknowledged and the W5100S socket is closed.
+
+This endpoint does not accept firmware data and does not enable WebUI/Ethernet
+`/update`. Supporting safe staged activation and recovery over Ethernet would
+require a custom openHop Modem bootloader, which is not currently planned.
+Instead, this working Bluetooth DFU flow is the supported OTA update path for a
+deployed gateway: after the RAK disconnects, use a Nordic-compatible DFU app to
+select the bootloader's Bluetooth device and upload the nRF52 `firmware.zip`.
+The BLE name is defined by the installed bootloader and must not be assumed.
+
+```bash
+curl -u admin:YOUR_PASSWORD -X POST -d '' http://192.168.1.42/dfu/ble
+```
+
+```json
+{
+  "status": "entering_ble_dfu",
+  "advertises_as": "bootloader-defined"
 }
 ```

@@ -15,10 +15,15 @@
 #include "legacy_rak4631_build_flags.h"
 #include "protocol.h"
 #include "board_config.h"
+#include "rak3401_ready_led.h"
+#include "bootloader_manager.h"
 #include "frame_parser.h"
 #include "compat.h"
 #include "rf_frontend.h"
 #include "station_g3_power.h"
+#include "runtime_stats.h"
+#include "battery_monitor.h"
+#include "gps_manager.h"
 #if defined(BOARD_HELTEC_T114)
 #  include "node_state.h"
 #endif
@@ -63,6 +68,102 @@
 #    define OPENHOP_ETH_HOSTNAME "openhop-rak4631-eth"
 #  endif
 #endif
+#if defined(OPENHOP_ETHERNET_W5100S)
+#  include "rak4631_config.h"
+namespace WifiManager {
+    enum class Mode : uint8_t { OFFLINE = 0, STA_CONNECTING = 1,
+                                STA_CONNECTED = 2, AP_CONFIG = 3 };
+    struct Config {
+        String   ssid;
+        String   password;
+        String   hostname;
+        bool     useStaticIP = false;
+        IPAddress staticIP;
+        IPAddress gateway;
+        IPAddress subnet;
+        IPAddress dns1;
+        IPAddress dns2;
+        String   tcpToken;
+        uint16_t tcpPort = 0;
+        bool     wifiExternalAntenna = false;
+        bool     gpsEnabled = false;
+        String   httpPassword;
+    };
+
+    inline IPAddress toIPAddress(const Rak4631Config::IPv4Address& address) {
+        return IPAddress(address.octets[0], address.octets[1],
+                         address.octets[2], address.octets[3]);
+    }
+
+    inline Rak4631Config::IPv4Address fromIPAddress(const IPAddress& address) {
+        return Rak4631Config::IPv4Address{{address[0], address[1], address[2], address[3]}};
+    }
+
+    inline Config& activeConfig() {
+        static Config config;
+        return config;
+    }
+
+    inline void loadConfigOnly() {
+        Rak4631Config::begin();
+        const auto& stored = Rak4631Config::getConfig();
+        Config& config = activeConfig();
+        config.hostname = stored.hostname;
+        config.useStaticIP = stored.useStaticIP;
+        config.staticIP = toIPAddress(stored.staticIP);
+        config.gateway = toIPAddress(stored.gateway);
+        config.subnet = toIPAddress(stored.subnet);
+        config.dns1 = toIPAddress(stored.dns1);
+        config.dns2 = toIPAddress(stored.dns2);
+        config.tcpToken = stored.tcpToken;
+        config.tcpPort = stored.tcpPort;
+        config.gpsEnabled = stored.gpsEnabled;
+        config.httpPassword = stored.httpPassword;
+    }
+
+    inline void  checkResetButton()  {}
+    inline void  begin()             { loadConfigOnly(); }
+    inline void  loop()              {}
+    inline bool  isSTAConnected()    { return false; }
+    inline bool  isAPActive()        { return false; }
+    inline bool  hasWifiAntennaSwitch() { return false; }
+    inline void  applyWifiAntennaSwitch() {}
+    inline const char* getSSID()     { return "---"; }
+    inline const char* getIPString() { return "---"; }
+    inline const char* getHostname() { return Rak4631Config::getEffectiveHostname(); }
+    inline Mode  getMode()           { return Mode::OFFLINE; }
+    inline const Config& getConfig() { return activeConfig(); }
+
+    inline bool saveConfig(const Config& config) {
+        if (config.hostname.length() > Rak4631Config::MAX_TEXT_LENGTH ||
+            config.tcpToken.length() > Rak4631Config::MAX_TEXT_LENGTH ||
+            config.httpPassword.length() > Rak4631Config::MAX_TEXT_LENGTH) {
+            return false;
+        }
+        Rak4631Config::Config stored = Rak4631Config::getConfig();
+        snprintf(stored.hostname, sizeof(stored.hostname), "%s", config.hostname.c_str());
+        stored.useStaticIP = config.useStaticIP;
+        stored.staticIP = fromIPAddress(config.staticIP);
+        stored.gateway = fromIPAddress(config.gateway);
+        stored.subnet = fromIPAddress(config.subnet);
+        stored.dns1 = fromIPAddress(config.dns1);
+        stored.dns2 = fromIPAddress(config.dns2);
+        stored.tcpPort = config.tcpPort;
+        snprintf(stored.tcpToken, sizeof(stored.tcpToken), "%s", config.tcpToken.c_str());
+        snprintf(stored.httpPassword, sizeof(stored.httpPassword), "%s",
+                 config.httpPassword.c_str());
+        stored.gpsEnabled = config.gpsEnabled;
+        return Rak4631Config::saveConfig(stored);
+    }
+    inline void factoryReset() {
+        if (Rak4631Config::factoryReset()) {
+            delay(200);
+            NVIC_SystemReset();
+        }
+    }
+}
+#else
+// Keep USB-only nRF52 targets on their existing no-op network stub.
 namespace WifiManager {
     enum class Mode : uint8_t { OFFLINE = 0, STA_CONNECTING = 1,
                                 STA_CONNECTED = 2, AP_CONFIG = 3 };
@@ -112,8 +213,10 @@ namespace WifiManager {
     inline void  saveConfig(const Config&) {}
     inline void  factoryReset()      {}
 }
+#endif
 #if defined(OPENHOP_ETHERNET_W5100S)
 #  include "w5100s_ethernet_transport.h"
+#  include "w5100s_http_server.h"
 #else
 namespace TCPServer {
     inline void begin(uint16_t, const String&) {}
@@ -169,8 +272,8 @@ static _WiFiStub WiFi;
 
 // ─── Version ─────────────────────────────────────────────────
 // Base version is shared by every board; the board's fw_suffix
-// distinguishes one binary from another (e.g. "v1.1.0-ikoka").
-#define FW_VERSION_BASE "v1.1.0"
+// distinguishes one binary from another (e.g. "v1.2.0-ikoka").
+#define FW_VERSION_BASE "v1.2.0"
 static String fwVersion;   // populated in setup()
 
 // ─── Task watchdog — self-heal on loop() hang ───────────────
@@ -183,6 +286,18 @@ static constexpr uint32_t LOOP_WDT_TIMEOUT_S = 30;
 class OpenHopSX1262 : public SX1262 {
 public:
     using SX1262::SX1262;
+
+    int16_t startReceive() override {
+        // RadioLib's default RX IRQ set omits PREAMBLE_DETECTED. The passive
+        // reception guard needs that flag latched before HEADER_VALID so a
+        // TX/CAD request cannot abort a frame during its preamble.
+        return SX1262::startReceive(
+            RADIOLIB_SX126X_RX_TIMEOUT_INF,
+            RADIOLIB_IRQ_RX_DEFAULT_FLAGS |
+                (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED),
+            RADIOLIB_IRQ_RX_DEFAULT_MASK,
+            0);
+    }
 
     int16_t applyRegisterPatch08B5() {
         uint8_t value = 0;
@@ -262,6 +377,66 @@ static uint8_t cadDetPeak  = 22;    // openHop Core default for SF7-SF8
 static uint8_t cadDetMin   = 10;    // AN1200.48 recommendation
 static uint8_t cadExitMode = 0x00;  // RADIOLIB_SX126X_CAD_GOTO_STDBY
 
+// ─── Reception-in-progress guard ─────────────────────────────
+// PREAMBLE_DETECTED / HEADER_VALID latch in the chip's IRQ status while a
+// frame is being received (DIO1 only fires on terminal IRQs, so the flags
+// stay readable here; readData() clears them once the frame completes).
+// Lets the TX path defer to an ongoing reception instead of aborting it —
+// CAD cannot do that: startChannelScan() drops to standby first, and its
+// 2-symbol scan is unreliable mid-payload anyway. Parity with MeshCore
+// CustomSX1262::isReceiving(). The millis bound keeps stale flags — a
+// reception the RX path never got to consume — from wedging TX forever,
+// like MeshCore's _maxPayloadMillis.
+static uint32_t rxActivityAt = 0;
+static bool     rxHeaderSeen = false;
+
+// True while the chip reports a reception in progress. The live IRQ flags
+// are the source of truth (MeshCore CustomSX1262::isReceiving), and each
+// stage carries its own staleness bound so a stray flag cannot hold TX off:
+// a lone preamble must turn into a valid header within about one preamble +
+// header airtime, a valid header into a frame within a worst-case payload
+// airtime.
+static bool isReceivingPacket() {
+    uint32_t irq = radio.getIrqFlags();
+    bool header   = (irq & RADIOLIB_SX126X_IRQ_HEADER_VALID) != 0;
+    bool preamble = (irq & RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED) != 0;
+    uint32_t now = millis();
+
+    if (!header && rxHeaderSeen) {
+        // The header flag went away without us clearing it: the frame ended
+        // or was aborted, and the state must follow the chip.
+        rxActivityAt = 0;
+        rxHeaderSeen = false;
+        return false;
+    }
+    if (header) {
+        if (!rxHeaderSeen) { rxHeaderSeen = true; rxActivityAt = now; }
+        // Worst-case airtime of a max-size frame at current settings, padded 50%.
+        uint32_t maxMs = (uint32_t)(radio.getTimeOnAir(MAX_LORA_PAYLOAD) / 1000) * 3 / 2 + 100;
+        if (now - rxActivityAt > maxMs) {
+            radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+                                RADIOLIB_SX126X_IRQ_HEADER_VALID);
+            rxActivityAt = 0;
+            rxHeaderSeen = false;
+            return false;
+        }
+        return true;
+    }
+    if (preamble) {
+        if (rxActivityAt == 0) rxActivityAt = now;
+        uint32_t preMs = (uint32_t)(radio.getTimeOnAir(1) / 1000) * 3 / 2 + 100;
+        if (now - rxActivityAt > preMs) {
+            radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
+            rxActivityAt = 0;
+            return false;
+        }
+        return true;
+    }
+    rxActivityAt = 0;
+    rxHeaderSeen = false;
+    return false;
+}
+
 // ─── Transport state ─────────────────────────────────────────
 static FrameParser serialParser;
 static FrameParser uartParser;        // protocol UART (Serial2 on nRF52)
@@ -312,90 +487,18 @@ static uint32_t maxLoopUs = 0;
 // frame that parsed cleanly. 0 = no frame yet since boot.
 static uint32_t lastUsbCmdMs = 0;
 
-#ifdef ARDUINO_ARCH_ESP32
-static bool readFuelGaugeRegister(uint8_t address, uint8_t reg, uint16_t& value) {
-    Wire.setTimeOut(50);
-    Wire.beginTransmission(address);
-    Wire.write(reg);
-    // Use a STOP between the register select and read.  The MAX17048 accepts
-    // this, and it avoids the ESP32-C6 Arduino core's repeated-start recovery
-    // path, which can wedge long enough to trip our loop watchdog when the
-    // Photon I2C bus/fuel gauge is absent or not pulled up.
-    if (Wire.endTransmission(true) != 0) {
-        return false;
-    }
-    if (Wire.requestFrom(address, (uint8_t)2) != 2) {
-        return false;
-    }
-    value = ((uint16_t)Wire.read() << 8) | Wire.read();
-    return true;
-}
-
-static uint16_t readBatteryMilliVolts() {
-    if (BOARD.battery.fuel_gauge_i2c_addr != 0) {
-        uint16_t vcell = 0;
-        if (readFuelGaugeRegister(BOARD.battery.fuel_gauge_i2c_addr,
-                                  BOARD.battery.fuel_gauge_vcell_reg,
-                                  vcell)) {
-            // MAX17048 VCELL uses 78.125 uV/LSB units, same conversion as
-            // the original MeshCore Photon firmware: vcell * 5 / 64 mV.
-            uint32_t mv = ((uint32_t)vcell * 5U) / 64U;
-            return mv > 65534U ? 65534U : (uint16_t)mv;
-        }
-        return 0xFFFF;
-    }
-
-    if (BOARD.battery.pin < 0 || BOARD.battery.multiplier <= 0.0f) {
-        return 0xFFFF;
-    }
-
-    if (BOARD.battery.enable_pin >= 0) {
-        pinMode(BOARD.battery.enable_pin, OUTPUT);
-        digitalWrite(BOARD.battery.enable_pin,
-                     BOARD.battery.enable_active_high ? HIGH : LOW);
-        delay(5);
-    }
-
-    uint32_t totalMv = 0;
-    constexpr uint8_t samples = 8;
-    for (uint8_t i = 0; i < samples; ++i) {
-        totalMv += analogReadMilliVolts(BOARD.battery.pin);
-        delay(1);
-    }
-    float packMv = (totalMv / (float)samples) * BOARD.battery.multiplier;
-    if (packMv < 0.0f) return 0;
-    if (packMv > 65534.0f) return 65534;
-    return (uint16_t)(packMv + 0.5f);
-}
-
-static bool readBatteryChargeRatePctPerHour(float& pctPerHour) {
-    if (BOARD.battery.fuel_gauge_i2c_addr == 0 ||
-        BOARD.battery.fuel_gauge_crate_reg == 0) {
-        return false;
-    }
-
-    uint16_t crate = 0;
-    if (!readFuelGaugeRegister(BOARD.battery.fuel_gauge_i2c_addr,
-                               BOARD.battery.fuel_gauge_crate_reg,
-                               crate)) {
-        return false;
-    }
-
-    // MAX17048 CRATE is signed, 0.208 %/hr per LSB. MeshCore surfaced this
-    // as current; on Photon it is actually the battery charge/discharge rate.
-    pctPerHour = (float)((int16_t)crate) * 0.208f;
-    return true;
-}
-
 namespace RuntimeStats {
 Snapshot capture() {
     Snapshot snap = {};
     snap.status = status;
     snap.status.uptime_sec = millis() / 1000;
-    snap.status.radio_state = radioStandby ? 2 : (isTxActive ? 1 : 0);
-    snap.status.temp_c = (int8_t)temperatureRead();
+    // StatusResp reserves state 2 for errors; standby remains a healthy idle
+    // state and is exposed separately in this richer runtime snapshot.
+    snap.status.radio_state = isTxActive ? 1 : 0;
+    snap.status.temp_c = RuntimeStatsValues::cpuTemperatureC(
+        compatReadCpuTemperature());
     snap.status.noise_floor_x10 = (int16_t)(noiseFloor * 10.0f);
-    snap.status.battery_mv = readBatteryMilliVolts();
+    snap.status.battery_mv = BatteryMonitor::readMilliVolts(BOARD.battery);
     snap.radio = currentConfig;
     snap.firmwareVersion = fwVersion;
     snap.radioStandby = radioStandby;
@@ -403,8 +506,9 @@ Snapshot capture() {
     snap.hasBatteryChargeRatePctPerHour = BOARD.battery.fuel_gauge_i2c_addr != 0 &&
         BOARD.battery.fuel_gauge_crate_reg != 0;
     if (snap.hasBatteryChargeRatePctPerHour) {
-        snap.batteryChargeRatePctPerHourValid = readBatteryChargeRatePctPerHour(
-            snap.batteryChargeRatePctPerHour);
+        snap.batteryChargeRatePctPerHourValid =
+            BatteryMonitor::readChargeRatePctPerHour(
+                BOARD.battery, snap.batteryChargeRatePctPerHour);
     }
     StationG3Power::Snapshot power = StationG3Power::snapshot();
     snap.stationG3PowerMonitorAvailable = power.available;
@@ -417,7 +521,6 @@ Snapshot capture() {
     return snap;
 }
 }
-#endif
 
 // ─── ISR callback ────────────────────────────────────────────
 #if defined(ESP32)
@@ -464,6 +567,33 @@ static void setTxLed(bool on) {
 
 static void txLedInitAtBoot() {
     setTxLed(false);
+}
+
+#if defined(BOARD_RAK3401)
+static Rak3401ReadyLed rak3401ReadyLed;
+#endif
+
+static void rak3401ReadyLedOffAtBoot() {
+#if defined(BOARD_RAK3401)
+    writeOutputPin(PIN_LED1, false);
+#endif
+}
+
+static void startRak3401ReadyLedHeartbeat() {
+#if defined(BOARD_RAK3401)
+    // Briefly light the RAK19007 green user LED after radio init, then leave
+    // it dark apart from the same 50 ms heartbeat once per minute.
+    rak3401ReadyLed.begin(millis());
+    writeOutputPin(PIN_LED1, rak3401ReadyLed.isLit());
+#endif
+}
+
+static void updateRak3401ReadyLedHeartbeat() {
+#if defined(BOARD_RAK3401)
+    if (rak3401ReadyLed.update(millis())) {
+        writeOutputPin(PIN_LED1, rak3401ReadyLed.isLit());
+    }
+#endif
 }
 static void rfSwitchEnHighAfterSettle() {
     if (!BOARD.has_lora_radio) return;
@@ -761,7 +891,8 @@ bool applyConfig(const RadioConfig& cfg) {
     state = radio.setCodingRate(cfg.cr);
     if (state != RADIOLIB_ERR_NONE) return false;
 
-    // Hardware ceiling per board (E22P868M30S = 30 dBm, bare SX1262 = 22).
+    // Board-specific RadioLib/SX1262 command-power ceiling. External PA gain
+    // is antenna-side output and must not be passed to setOutputPower().
     int8_t pwr = cfg.power_dbm;
     if (pwr > BOARD.max_tx_power_dbm) pwr = BOARD.max_tx_power_dbm;
     int currentLimitBefore = (int)radio.getCurrentLimit();
@@ -879,30 +1010,48 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             sendError(ERR_PAYLOAD_TOO_BIG, src);
             break;
         }
+        // Reception guard, independent of auto-CAD: a frame being received
+        // is authoritative — refuse rather than trample it. The radio stays
+        // untouched (standby or startReceive() here would abort the frame);
+        // its terminal IRQ delivers it to the host, and the host retries the
+        // TX within its LBT budget on ERR_CHANNEL_BUSY.
+        if (isReceivingPacket()) {
+            sendError(ERR_CHANNEL_BUSY, src);
+            break;
+        }
         // v0.5.7: non-blocking TX with our own timeout.
         // The previous radio.transmit() was synchronous and could wait
         // indefinitely when SX1262 lost the TX_DONE IRQ (observed after CAD
         // timeouts), which in turn blocked loop() long enough for the 30 s
         // task watchdog to reboot the firmware every minute.
         isTxActive = true;
-        radio.standby();
-        delay(1);
 
         // ─── Auto-CAD before TX (when enabled by controller) ──
         // Up to CAD_AUTO_RETRIES of CAD-with-backoff. If the
         // channel is busy after every retry, we bail with
         // ERR_CHANNEL_BUSY instead of trampling a neighbour.
         // Local decision (lowest latency vs P4-managed equivalent).
+        // All channel checks run BEFORE the standby that stages the
+        // TX: standby() aborts an in-progress reception, so the old
+        // order destroyed the very reception it was about to probe.
         if (autoCadEnabled) {
             // 2 retries (3 scans total) + tightened jitter caps
-            // worst-case main-loop blocking around ~450 ms (was ~1 s
-            // before). Important because the loop also drains the
-            // UART RX ring — at 921600 baud the controller can push
+            // worst-case main-loop blocking around ~750 ms.
+            // Important because the loop also drains the UART RX
+            // ring — at 921600 baud the controller can push
             // ~46 KB/s and our SERIAL_BUFFER_SIZE is 512 B.
             constexpr uint8_t  CAD_AUTO_RETRIES   = 2;
             constexpr uint32_t CAD_TIMEOUT_MS     = 200;   // worst-case SF12 ≈ 100 ms
             bool channel_clear = false;
+            bool reception_busy = false;
             for (uint8_t attempt = 0; attempt < CAD_AUTO_RETRIES; attempt++) {
+                // Passive guard first: a latched in-progress reception
+                // is authoritative — return busy without a scan, standby,
+                // or RX restart that would abort/discard the frame.
+                if (isReceivingPacket()) {
+                    reception_busy = true;
+                    break;
+                }
                 ChannelScanConfig_t cfg = {};
                 cfg.cad.symNum    = cadSymNum;
                 cfg.cad.detPeak   = cadDetPeak;
@@ -911,19 +1060,41 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 cfg.cad.irqFlags  = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS;
                 cfg.cad.irqMask   = RADIOLIB_IRQ_CAD_DEFAULT_MASK;
                 dio1Flag = false;
-                if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) break;
+                if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) {
+                    dio1Flag = false;
+                    break;
+                }
                 uint32_t cad_t0 = millis();
-                while (!dio1Flag && (millis() - cad_t0) < CAD_TIMEOUT_MS) {
+                uint16_t irq = 0;
+                while ((millis() - cad_t0) < CAD_TIMEOUT_MS) {
+                    irq = radio.getIrqFlags();
+                    if (irq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
                     compatWdtReset();
                     delay(2);
                 }
-                uint16_t irq = radio.getIrqFlags();
-                radio.clearIrqFlags(RADIOLIB_IRQ_CAD_DEFAULT_FLAGS);
+                radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
+                                    RADIOLIB_SX126X_IRQ_CAD_DETECTED);
+                dio1Flag = false;
+                // A stale RX_DONE software flag must never count as CAD
+                // completion. Only the chip's CAD_DONE flag proves the scan
+                // finished and makes a clear/busy verdict meaningful.
+                if (!(irq & RADIOLIB_SX126X_IRQ_CAD_DONE)) break;
                 bool busy = (irq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) != 0;
                 if (!busy) { channel_clear = true; break; }
-                // Random backoff 50-200 ms to prevent step-locking
-                // with another sector that retried at the same time.
-                delay(20 + (millis() & 0x1F));
+                // Random backoff 50-200 ms to prevent step-locking with
+                // another sector that retried at the same time. (The old
+                // delay(20 + (millis() & 0x1F)) waited 20-51 ms despite
+                // its comment; micros() is the jitter source because
+                // Arduino random() is unseeded — and identical — on the
+                // nRF52 targets.)
+                delay(50 + (micros() % 150));
+            }
+            // The passive guard already answered without changing radio
+            // state; leave RX and its terminal IRQ untouched for loop().
+            if (reception_busy) {
+                isTxActive = false;
+                sendError(ERR_CHANNEL_BUSY, src);
+                break;
             }
             if (!channel_clear) {
                 LOG_R_WARN("auto-CAD: channel busy after retries, abort TX");
@@ -933,6 +1104,9 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                 break;
             }
         }
+
+        radio.standby();
+        delay(1);
 
         // If the operator enabled the V4.3 external RX LNA, it must be
         // treated as an RX-only state. Restore CTX HIGH before TX so the
@@ -1002,6 +1176,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
     }
 
     case CMD_CAD_REQUEST: {
+        // Passive guard first: a reception in progress IS a busy verdict,
+        // and the standby below would abort the very frame this request is
+        // probing for. Answer busy without touching the radio — the frame's
+        // terminal IRQ will deliver it to the host.
+        if (isReceivingPacket()) {
+            uint8_t result[1] = {1};
+            sendFrame(CMD_CAD_RESP, result, 1, src);
+            break;
+        }
         // v0.5.8: non-blocking CAD with our own timeout.
         // The previous radio.scanChannel() was synchronous and would block
         // until CAD_DONE IRQ arrived. When SX1262 dropped that IRQ (first
@@ -1032,6 +1215,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         }
 
         if (state != RADIOLIB_ERR_NONE) {
+            dio1Flag = false;
             sendError(ERR_CAD_FAILED, src);
             startReceive();
             break;
@@ -1040,12 +1224,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         // 500 ms easily covers a legitimate CAD scan at any SF+symNum we use.
         const uint32_t CAD_TIMEOUT_MS = 500;
         uint32_t cadStart = millis();
-        while (!dio1Flag && (millis() - cadStart) < CAD_TIMEOUT_MS) {
+        uint16_t cadIrq = 0;
+        while ((millis() - cadStart) < CAD_TIMEOUT_MS) {
+            cadIrq = radio.getIrqFlags();
+            if (cadIrq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
             compatWdtReset();
             delay(1);
         }
 
-        if (!dio1Flag) {
+        if (!(cadIrq & RADIOLIB_SX126X_IRQ_CAD_DONE)) {
             // CAD_DONE never fired — treat as failure and clean up the chip
             // before the next request. Don't block the repeater's LBT
             // forever; reporting failure lets the host decide.
@@ -1053,24 +1240,22 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             radio.standby();
             delay(5);
             applyConfig(currentConfig);
+            dio1Flag = false;
             sendError(ERR_CAD_FAILED, src);
             startReceive();
             break;
         }
 
-        int scanResult = radio.getChannelScanResult();
+        radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
+                            RADIOLIB_SX126X_IRQ_CAD_DETECTED);
         dio1Flag = false;
         uint8_t result[1];
-        if (scanResult == RADIOLIB_LORA_DETECTED) {
-            result[0] = 1;
-        } else if (scanResult == RADIOLIB_CHANNEL_FREE) {
-            result[0] = 0;
-        } else {
-            sendError(ERR_CAD_FAILED, src);
-            startReceive();
-            break;
-        }
+        result[0] = (cadIrq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) ? 1 : 0;
         sendFrame(CMD_CAD_RESP, result, 1, src);
+        // Back to RX right away: the scan parked the radio in standby, and
+        // the host probes every ~200 ms for its whole LBT budget — without
+        // this the modem is deaf between probes, so it can neither receive
+        // the traffic it is deferring to nor arm the passive guard above.
         startReceive();
         break;
     }
@@ -1132,16 +1317,8 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
     }
 
     case CMD_STATUS_REQ: {
-        status.uptime_sec = millis() / 1000;
-        status.radio_state = isTxActive ? 1 : 0;
-#ifdef ARDUINO_ARCH_ESP32
-        status.temp_c = (int8_t)temperatureRead();
-        status.battery_mv = readBatteryMilliVolts();
-#else
-        status.temp_c = 0;   // nRF52 has its own temperature sensor — TODO
-        status.battery_mv = 0xFFFF;
-#endif
-        status.noise_floor_x10 = (int16_t)(noiseFloor * 10.0f);
+        const RuntimeStats::Snapshot live = RuntimeStats::capture();
+        status = live.status;
         sendFrame(CMD_STATUS_RESP, (uint8_t*)&status, sizeof(StatusResp), src);
         break;
     }
@@ -1274,23 +1451,15 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         break;
     }
     case CMD_ENTER_BOOTLOADER: {
-        // Triggers Adafruit nRF52 DFU mode without touching the
-        // reset button: write the magic value to GPREGRET (bootloader
-        // checks it on startup and enters DFU instead of jumping to
-        // the app), ack the host, then NVIC_SystemReset().
-        // After reboot the operator finalises the flash by plugging
-        // USB locally — full UART OTA is the next step (CMD_OTA_*).
-        // No-op on ESP32 (no equivalent path; CDC + esptool_py is
-        // already trivial there).
-        sendFrame(CMD_PONG, nullptr, 0, src);
-        LOG_R_INFO("ENTER_BOOTLOADER requested — resetting into DFU");
 #ifdef NRF52_SERIES
-        // 0x57 = OTA_DFU magic from Adafruit nRF52 BSP
-        // (variants/<board>/dfu/usb_desc.h notwithstanding —
-        // bootloader matches on the value, not symbolic name).
-        NRF_POWER->GPREGRET = 0x57;
+        // Preserve the protocol command's established Adafruit USB bootloader
+        // transition (GPREGRET 0x57), but let the BSP perform the shutdown and
+        // reset sequence rather than writing GPREGRET directly. The tested RAK
+        // bootloader exposes serial DFU, not a UF2 mass-storage disk.
+        sendFrame(CMD_PONG, nullptr, 0, src);
+        LOG_R_INFO("ENTER_BOOTLOADER requested — entering USB serial DFU bootloader");
         delay(100);
-        NVIC_SystemReset();
+        BootloaderManager::enterUf2Dfu();
 #else
         sendError(ERR_INVALID_CMD, src);
 #endif
@@ -1364,6 +1533,12 @@ void noteTransportFrameError(uint8_t err_code) {
 
 // ─── Setup ───────────────────────────────────────────────────
 void setup() {
+#if defined(BOARD_RAK4631_WISMESH_ETH)
+    // The RAK application does not run the Bluefruit SOC event task. Disable a
+    // bootloader-inherited SoftDevice before USB starts so InternalFS writes are
+    // synchronous instead of waiting forever for an undelivered flash event.
+    Rak4631Config::prepareFlashRuntime();
+#endif
     // PRG held ≥5s at boot → wipe Wi-Fi NVS and reboot. Must come before
     // other init so button sampling is clean.
     WifiManager::checkResetButton();
@@ -1375,6 +1550,7 @@ void setup() {
     // before SPI traffic begins.
     rfSwitchEnLowAtBoot();
     txLedInitAtBoot();
+    rak3401ReadyLedOffAtBoot();
 
 #if defined(BOARD_HELTEC_T114)
     // Restore non-volatile T114 state BEFORE radio init so we know
@@ -1518,8 +1694,16 @@ void setup() {
                    (int)BOARD.pin_lora_rst, (int)BOARD.pin_lora_busy,
                    (int)BOARD.pin_lora_sck, (int)BOARD.pin_lora_miso,
                    (int)BOARD.pin_lora_mosi);
-        int state = radio.begin();
-        LOG_R_INFO("radio.begin -> %d", state);
+        // RadioLib's no-argument SX1262::begin() assumes a 1.6 V TCXO.
+        // Supply the board policy during initialization so targets such as
+        // RAK3401 bring up their 1.8 V TCXO before the first radio commands.
+        const float initialTcxoVoltage = BOARD.use_dio3_tcxo
+                                             ? BOARD.tcxo_voltage
+                                             : 0.0f;
+        int state = radio.begin(434.0f, 125.0f, 9, 7,
+                                RADIOLIB_SX126X_SYNC_WORD_PRIVATE,
+                                10, 8, initialTcxoVoltage);
+        LOG_R_INFO("radio.begin (TCXO=%.1f V) -> %d", initialTcxoVoltage, state);
         if (state != RADIOLIB_ERR_NONE) {
             oled.showError("SX1262 init fail!");
             while (Serial.availableForWrite() == 0) delay(10);
@@ -1527,10 +1711,6 @@ void setup() {
             Serial.println("[BOOT] SX1262 init failed — continuing with Wi-Fi/config portal only");
             radioReady = false;
         } else {
-        if (BOARD.use_dio3_tcxo) {
-            state = radio.setTCXO(BOARD.tcxo_voltage);
-            LOG_R_INFO("setTCXO(%.1f V) -> %d", BOARD.tcxo_voltage, state);
-        }
         rfSwitchConfigureRadio();
         configureBoardRadioOptions();
 
@@ -1549,6 +1729,7 @@ void setup() {
         }
 
         radioReady = true;
+        startRak3401ReadyLedHeartbeat();
         }
     } else {
         Serial.println("[BOOT] no LoRa radio on this board — running as Wi-Fi/Ethernet bridge only");
@@ -1567,6 +1748,12 @@ void setup() {
     const auto& netCfg = WifiManager::getConfig();
     bool useEthernet = false;
     if (BOARD.ethernet.enabled) {
+#if defined(OPENHOP_ETHERNET_W5100S)
+        // Start from a clean, independent HTTP socket lifecycle. begin() is
+        // safe before DHCP succeeds; its loop restarts port 80 when the
+        // W5100S path becomes usable after a cable/DHCP transition.
+        W5100sHttpServer::end();
+#endif
         EthernetManager::begin(WifiManager::getHostname(),
                                netCfg.useStaticIP,
                                netCfg.staticIP,
@@ -1574,6 +1761,9 @@ void setup() {
                                netCfg.subnet,
                                netCfg.dns1,
                                netCfg.dns2);   // waits up to 5 s for link + DHCP
+#if defined(OPENHOP_ETHERNET_W5100S)
+        W5100sHttpServer::begin();
+#endif
         if (EthernetManager::isLinkUp()) {
             useEthernet = true;
             Serial.println("[NET] Ethernet link up — Wi-Fi will be skipped");
@@ -1635,7 +1825,8 @@ void setup() {
     oledWakeUntil = millis() + OLED_WAKE_DURATION_MS;
     lastAutoCycleMs = millis();   // first auto-cycle fires SCREEN_AUTO_CYCLE_MS after splash
 
-#ifdef ARDUINO_ARCH_ESP32
+#if defined(ARDUINO_ARCH_ESP32) || \
+    (defined(OPENHOP_RAK4631_GPS_SERIAL_ENABLE) && OPENHOP_RAK4631_GPS_SERIAL_ENABLE)
     GPSManager::begin(WifiManager::getConfig().gpsEnabled);
 #endif
 
@@ -1734,6 +1925,7 @@ void loop() {
     loopStartUs = (uint32_t)micros();
 
     compatWdtReset();   // feed the loop watchdog every pass
+    updateRak3401ReadyLedHeartbeat();
 
     // DIO1 during TX is consumed by the TX handler's own wait loop; in
     // loop() we only act on it when the radio is in RX mode.
@@ -1757,8 +1949,12 @@ void loop() {
     }
 
     if (tcpStarted) TCPServer::loop();
+#if defined(OPENHOP_ETHERNET_W5100S)
+    W5100sHttpServer::loop();
+#endif
     if (otaStarted) OTAManager::loop();
-#ifdef ARDUINO_ARCH_ESP32
+#if defined(ARDUINO_ARCH_ESP32) || \
+    (defined(OPENHOP_RAK4631_GPS_SERIAL_ENABLE) && OPENHOP_RAK4631_GPS_SERIAL_ENABLE)
     GPSManager::loop();
 #endif
 
@@ -1769,6 +1965,7 @@ void loop() {
     // Low-priority I2C telemetry runs only after radio IRQs and all host
     // transports have been drained for this iteration.
     StationG3Power::loop();
+    BatteryMonitor::loop(BOARD.battery);
 
     // Lazy TCP + OTA start if STA or Ethernet came up after boot.
     bool netUp = WifiManager::isSTAConnected() || EthernetManager::hasIP();
@@ -1877,11 +2074,8 @@ void loop() {
                     ssid     = BOARD.has_wifi ? WifiManager::getSSID()    : "---";
                     ip       = BOARD.has_wifi ? WifiManager::getIPString(): "---";
                 }
-                uint16_t batteryMv = 0xFFFF;
-#ifdef ARDUINO_ARCH_ESP32
-                batteryMv = readBatteryMilliVolts();
+                uint16_t batteryMv = BatteryMonitor::readMilliVolts(BOARD.battery);
                 status.battery_mv = batteryMv;
-#endif
                 oled.showStatus(status.rx_count, status.tx_count,
                                 ssid, ip, stateTag, fwVersion.c_str(), batteryMv);
             } else if (currentScreen == Screen::RADIO) {

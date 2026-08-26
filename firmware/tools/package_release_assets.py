@@ -8,6 +8,12 @@ import re
 import zipfile
 from pathlib import Path
 
+from package_nrf52_ota import (
+    PackageError,
+    firmware_version_from_source,
+    validate_package_matches_dfu,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 FIRMWARE = ROOT / "firmware"
 SAFE_TAG = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -22,10 +28,38 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def discover_platformio_envs() -> list[str]:
+    platformio_ini = FIRMWARE / "platformio.ini"
+    envs: list[str] = []
+    for line in platformio_ini.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[env:") and stripped.endswith("]"):
+            envs.append(stripped[len("[env:"):-1])
+    if not envs:
+        raise SystemExit(f"No [env:<name>] blocks found in {platformio_ini}")
+    return envs
+
+
 def discover_asset_dirs() -> list[Path]:
     asset_dirs = sorted(path.parent for path in FIRMWARE.glob("*/SHA256SUMS.txt"))
     if not asset_dirs:
         raise SystemExit("No firmware/<env>/SHA256SUMS.txt files found")
+
+    expected = set(discover_platformio_envs())
+    actual = {path.name for path in asset_dirs}
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    errors: list[str] = []
+    if missing:
+        errors.append("missing tracked assets for: " + ", ".join(missing))
+    if unexpected:
+        errors.append("unexpected tracked asset directories: " + ", ".join(unexpected))
+    if errors:
+        raise SystemExit(
+            "Tracked release assets do not match firmware/platformio.ini ("
+            + "; ".join(errors)
+            + ")"
+        )
     return asset_dirs
 
 
@@ -53,6 +87,30 @@ def checksummed_files(asset_dir: Path) -> list[Path]:
         files.append(source)
     if not files:
         raise SystemExit(f"No assets listed in {sums_path}")
+    ota_files = [path for path in files if path.name == "firmware.ota"]
+    if asset_dir.name == "rak4631_wismesh_eth":
+        names = {path.name for path in files}
+        if "firmware.ota" in names and "firmware.zip" not in names:
+            raise SystemExit(
+                f"{asset_dir.name} firmware.ota requires firmware.zip"
+            )
+        if "firmware.ota" in names:
+            try:
+                version = firmware_version_from_source(
+                    FIRMWARE / "src/main.cpp",
+                    FIRMWARE / "include/boards/rak4631_wismesh_eth.h",
+                )
+                validate_package_matches_dfu(
+                    asset_dir / "firmware.ota",
+                    asset_dir / "firmware.zip",
+                    version,
+                )
+            except PackageError as exc:
+                raise SystemExit(f"Invalid RAK4631 firmware.ota: {exc}") from exc
+    elif ota_files:
+        raise SystemExit(
+            f"firmware.ota is board-specific and not allowed for {asset_dir.name}"
+        )
     return files
 
 
@@ -87,6 +145,11 @@ def package(tag: str, output_dir: Path) -> tuple[list[Path], Path, list[str]]:
             "For ESP32 first installs, flash firmware.factory.bin at offset 0x0.\n"
             "For compatible app-only USB/OTA updates, use firmware.bin at 0x10000.\n"
             "For nRF52 targets, use firmware.uf2 or the Adafruit DFU firmware.zip.\n"
+            + (
+                "The RAK4631 firmware.ota is a preparatory Ethernet-update package; "
+                "it is not proof that installation is enabled or supported on a device.\n"
+                if any(path.name == "firmware.ota" for path in files) else ""
+            )
         )
 
         temporary.unlink(missing_ok=True)

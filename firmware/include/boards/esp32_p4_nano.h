@@ -84,10 +84,13 @@ inline const BoardConfig BOARD = {
     .pin_user_button        = -1,
     .user_button_active_low = true,
 
-    .max_tx_power_dbm = 30,         // E22P868M30S ceiling (when fitted)
+    // RadioLib configures the SX1262 drive level, not the E22P868M30S
+    // module's amplified antenna-side output. The external PA supplies the gain.
+    .max_tx_power_dbm = 22,
 
     .use_dio3_tcxo = true,
     .tcxo_voltage  = 1.8f,
+    .sx126x_current_limit_ma = 140,
 
     .has_lora_radio = true,         // E22P868M30S wired
 
