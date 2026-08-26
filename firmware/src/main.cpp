@@ -15,6 +15,7 @@
 #include "legacy_rak4631_build_flags.h"
 #include "protocol.h"
 #include "board_config.h"
+#include "rak3401_ready_led.h"
 #include "bootloader_manager.h"
 #include "frame_parser.h"
 #include "compat.h"
@@ -568,14 +569,30 @@ static void txLedInitAtBoot() {
     setTxLed(false);
 }
 
-static void setRak3401ReadyLed(bool on) {
 #if defined(BOARD_RAK3401)
-    // RAK19007 green user LED: steady ON means the radio initialized and
-    // continuous receive mode started successfully. Keep it OFF on boot and
-    // on every setup failure path.
-    writeOutputPin(PIN_LED1, on);
-#else
-    (void)on;
+static Rak3401ReadyLed rak3401ReadyLed;
+#endif
+
+static void rak3401ReadyLedOffAtBoot() {
+#if defined(BOARD_RAK3401)
+    writeOutputPin(PIN_LED1, false);
+#endif
+}
+
+static void startRak3401ReadyLedHeartbeat() {
+#if defined(BOARD_RAK3401)
+    // Briefly light the RAK19007 green user LED after radio init, then leave
+    // it dark apart from the same 50 ms heartbeat once per minute.
+    rak3401ReadyLed.begin(millis());
+    writeOutputPin(PIN_LED1, rak3401ReadyLed.isLit());
+#endif
+}
+
+static void updateRak3401ReadyLedHeartbeat() {
+#if defined(BOARD_RAK3401)
+    if (rak3401ReadyLed.update(millis())) {
+        writeOutputPin(PIN_LED1, rak3401ReadyLed.isLit());
+    }
 #endif
 }
 static void rfSwitchEnHighAfterSettle() {
@@ -1532,7 +1549,7 @@ void setup() {
     // before SPI traffic begins.
     rfSwitchEnLowAtBoot();
     txLedInitAtBoot();
-    setRak3401ReadyLed(false);
+    rak3401ReadyLedOffAtBoot();
 
 #if defined(BOARD_HELTEC_T114)
     // Restore non-volatile T114 state BEFORE radio init so we know
@@ -1711,7 +1728,7 @@ void setup() {
         }
 
         radioReady = true;
-        setRak3401ReadyLed(true);
+        startRak3401ReadyLedHeartbeat();
         }
     } else {
         Serial.println("[BOOT] no LoRa radio on this board — running as Wi-Fi/Ethernet bridge only");
@@ -1907,6 +1924,7 @@ void loop() {
     loopStartUs = (uint32_t)micros();
 
     compatWdtReset();   // feed the loop watchdog every pass
+    updateRak3401ReadyLedHeartbeat();
 
     // DIO1 during TX is consumed by the TX handler's own wait loop; in
     // loop() we only act on it when the radio is in RX mode.
