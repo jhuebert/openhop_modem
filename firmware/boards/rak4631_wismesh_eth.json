@@ -1,7 +1,7 @@
 {
   "build": {
     "arduino": {
-      "ldscript": "nrf52840_s140_v6.ld"
+      "ldscript": "nrf52840_s140_v6_openhop_ota.ld"
     },
     "core": "nRF5",
     "cpu": "cortex-m4",
@@ -44,7 +44,7 @@
   "name": "RAK4631 WisMesh Ethernet Gateway",
   "upload": {
     "maximum_ram_size": 235520,
-    "maximum_size": 815104,
+    "maximum_size": 401408,
     "speed": 115200,
     "protocol": "nrfutil",
     "protocols": [
