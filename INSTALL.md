@@ -26,7 +26,7 @@ your board:
 | MeshSmith EtherMesh-1W | `ethermesh_1w` | `ethermesh-1w-<mac3>.local` | **Ethernet** |
 | Heltec T114 | `heltec_t114` | n/a | none — USB-CDC + UART only |
 | RAK4631 USB | `rak4631_usb` | n/a | none — USB-CDC only |
-| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; Ethernet OTA disabled |
+| RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; WebUI OTA disabled; Bluetooth DFU OTA supported |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
 
 The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
@@ -41,7 +41,7 @@ Use the openHop browser flasher for supported modem boards:
 <https://flasher.openhop.dev/>
 
 Pick your board, connect it over USB, and flash from the browser. For a local
-RAK4631 test build, choose **Custom Firmware** and select
+RAK4631 build, choose **Custom Firmware** and select
 `firmware/rak4631_wismesh_eth/firmware.zip`. Stop anything using the serial
 port, click **Enter DFU mode**, and select the application port. Then click
 **Flash** and select the newly appearing `WisBlock RAK4631` bootloader port. If
@@ -154,16 +154,17 @@ double-tap RESET, or hold BOOT while plugging USB. ESP32-P4-Nano
 download mode: hold **BOOT (Key1)**, briefly press **RESET (Key2)**,
 release RESET, release BOOT.
 
-### 1d. OTA over the network (after the first flash, no cable)
+### 1d. OTA updates after the first flash
 
-**Only ESP32-family targets with the OTA/HTTP stack** support network
-OTA. nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`,
-`rak4631_wismesh_eth`)
-must be flashed via USB with `pio run -e <env> -t upload` (Adafruit
-nRF52 DFU). The RAK4631 does have an authenticated HTTP management stack,
-but `/update` is absent. Its generated `firmware.ota` is packaging/staging
-groundwork only; no supported update route installs it. Use the generated
-`firmware.zip` with BLE or USB DFU instead.
+**Only ESP32-family targets with the OTA/HTTP stack** support WebUI firmware
+upload. Most nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, and `rak4631_usb`)
+use USB with `pio run -e <env> -t upload` (Adafruit nRF52 DFU). The RAK4631
+WisMesh Ethernet Gateway is the exception: it supports OTA updates through its
+working Bluetooth DFU flow. WebUI `/update` remains absent because safe staged
+activation and recovery would require a custom openHop Modem bootloader, which
+is not currently planned. Its generated `firmware.ota` is therefore
+packaging/staging groundwork only. Use the generated `firmware.zip` for
+Bluetooth DFU OTA; USB DFU remains available as a recovery path.
 
 Once the board is on the LAN (Wi-Fi STA or Ethernet — ESP32 only) and
 visible via mDNS:
@@ -195,13 +196,10 @@ response and Ethernet socket before handing off to the installed Nordic BLE DFU
 bootloader. Then use a Nordic-compatible DFU app to select the bootloader's
 Bluetooth device and upload `firmware/rak4631_wismesh_eth/firmware.zip`. The
 Bluetooth name is bootloader-defined; do not require a fixed name. Complete BLE
-DFU uploads are validated on the production gateway. Keep USB serial DFU
-available for recovery from an interrupted transfer. A tested
-RAK4630/RAK19003 proxy exposed only CDC in bootloader mode, not a UF2 disk, so
-do not assume UF2 mass storage on the production gateway without checking it.
-On that proxy, MeshCore's application-mode `RAK4631_OTA` service successfully
-handed off to a connectable bootloader target named `AdaDFU`; no image data was
-sent, and a reset returned to the unchanged repeater application.
+DFU uploads are validated on the production gateway, making this the supported
+OTA update path for deployed units. Keep USB serial DFU available for recovery
+from an interrupted transfer. Do not assume the production gateway exposes a
+UF2 mass-storage disk; use its BLE DFU target or USB serial DFU port.
 
 ### Adding a new board
 

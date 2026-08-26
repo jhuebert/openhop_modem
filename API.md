@@ -265,10 +265,13 @@ empty body and is protected by the same Basic authentication and same-origin
 browser checks as other management actions. The transition is not executed until
 the complete HTTP response is acknowledged and the W5100S socket is closed.
 
-This endpoint does not accept firmware data and does not enable Ethernet
-`/update`. After the RAK disconnects, use a Nordic-compatible DFU app to select
-the bootloader's Bluetooth device and upload the nRF52 `firmware.zip`. The BLE
-name is defined by the installed bootloader and must not be assumed.
+This endpoint does not accept firmware data and does not enable WebUI/Ethernet
+`/update`. Supporting safe staged activation and recovery over Ethernet would
+require a custom openHop Modem bootloader, which is not currently planned.
+Instead, this working Bluetooth DFU flow is the supported OTA update path for a
+deployed gateway: after the RAK disconnects, use a Nordic-compatible DFU app to
+select the bootloader's Bluetooth device and upload the nRF52 `firmware.zip`.
+The BLE name is defined by the installed bootloader and must not be assumed.
 
 ```bash
 curl -u admin:YOUR_PASSWORD -X POST -d '' http://192.168.1.42/dfu/ble
