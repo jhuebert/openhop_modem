@@ -28,6 +28,7 @@ your board:
 | RAK4631 USB | `rak4631_usb` | n/a | none — USB-CDC only |
 | RAK4631 WisMesh Ethernet Gateway | `rak4631_wismesh_eth` | n/a (use DHCP lease/IP) | **Ethernet** (W5100S, TCP 5055 + WebUI/API 80) — no mDNS; WebUI OTA disabled; Bluetooth DFU OTA supported |
 | Seeed XIAO nRF52840 + Wio-SX1262 | `xiao_nrf52_wio` | n/a | none — USB-CDC only |
+| RAKwireless RAK3401 (RAK13302 1 W front end) | `rak3401` | n/a | none — USB-CDC only |
 
 The `esp32_p4_nano`, `ethermesh_1w`, `station_g2`, `station_g3`, and `photon_1w_xiao_esp32c6` envs use the
 [pioarduino fork](https://github.com/pioarduino/platform-espressif32)
@@ -82,7 +83,7 @@ bootloader flow; there are no ESP32-style bootloader/partition offsets for
 these targets.
 
 `<env>` for nRF52 is one of: `heltec_t114`, `xiao_nrf52_wio`,
-`rak4631_usb`, or `rak4631_wismesh_eth`.
+`rak4631_usb`, `rak4631_wismesh_eth`, or `rak3401`.
 
 A direct `pio run -e xiao_nrf52_wio` source build also creates
 `.pio/build/xiao_nrf52_wio/firmware.uf2` for drag-and-drop flashing.
@@ -157,7 +158,8 @@ release RESET, release BOOT.
 ### 1d. OTA updates after the first flash
 
 **Only ESP32-family targets with the OTA/HTTP stack** support WebUI firmware
-upload. Most nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, and `rak4631_usb`)
+upload. Most nRF52 targets (`heltec_t114`, `xiao_nrf52_wio`, `rak4631_usb`, and
+`rak3401`)
 use USB with `pio run -e <env> -t upload` (Adafruit nRF52 DFU). The RAK4631
 WisMesh Ethernet Gateway is the exception: it supports OTA updates through its
 working Bluetooth DFU flow. WebUI `/update` remains absent because safe staged

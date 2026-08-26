@@ -142,6 +142,11 @@ ENV_METADATA: dict[str, dict[str, str | bool]] = {
         "chip_family": "NRF52",
         "web_manifest": False,
     },
+    "rak3401": {
+        "name": "RAK3401 1W openHop Modem",
+        "chip_family": "NRF52",
+        "web_manifest": False,
+    },
 }
 
 # Board headers generally map 1:1 to env names in this repo.
@@ -165,6 +170,7 @@ BOARD_HEADER_TO_ENV = {
     "firmware/include/boards/xiao_nrf52_wio.h": "xiao_nrf52_wio",
     "firmware/include/boards/rak4631_wismesh_eth.h": "rak4631_wismesh_eth",
     "firmware/include/boards/rak4631_usb.h": "rak4631_usb",
+    "firmware/include/boards/rak3401.h": "rak3401",
 }
 
 # Changes here are shared enough that building all envs is safer.
