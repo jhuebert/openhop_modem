@@ -70,6 +70,8 @@ inline const BoardConfig BOARD = {
 
     .use_dio3_tcxo = true,
     .tcxo_voltage  = 1.8f,             // 32 MHz TCXO on the Wio carrier
+    .sx126x_current_limit_ma = 140,
+    .sx126x_rx_boosted_gain = true,
 
     .has_lora_radio = true,
     .has_wifi       = true,
