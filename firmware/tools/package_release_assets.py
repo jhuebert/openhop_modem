@@ -28,10 +28,38 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def discover_platformio_envs() -> list[str]:
+    platformio_ini = FIRMWARE / "platformio.ini"
+    envs: list[str] = []
+    for line in platformio_ini.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[env:") and stripped.endswith("]"):
+            envs.append(stripped[len("[env:"):-1])
+    if not envs:
+        raise SystemExit(f"No [env:<name>] blocks found in {platformio_ini}")
+    return envs
+
+
 def discover_asset_dirs() -> list[Path]:
     asset_dirs = sorted(path.parent for path in FIRMWARE.glob("*/SHA256SUMS.txt"))
     if not asset_dirs:
         raise SystemExit("No firmware/<env>/SHA256SUMS.txt files found")
+
+    expected = set(discover_platformio_envs())
+    actual = {path.name for path in asset_dirs}
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    errors: list[str] = []
+    if missing:
+        errors.append("missing tracked assets for: " + ", ".join(missing))
+    if unexpected:
+        errors.append("unexpected tracked asset directories: " + ", ".join(unexpected))
+    if errors:
+        raise SystemExit(
+            "Tracked release assets do not match firmware/platformio.ini ("
+            + "; ".join(errors)
+            + ")"
+        )
     return asset_dirs
 
 
