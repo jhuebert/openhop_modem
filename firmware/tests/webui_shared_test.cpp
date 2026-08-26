@@ -214,6 +214,7 @@ void testStatsRenderIntegralValuesWithoutFormatFragments() {
     assertContains(stats, "Coding rate</span><span class='v'>4/8");
     assertContains(stats, "TX power</span><span class='v'>22 dBm");
     assertContains(stats, "Preamble</span><span class='v'>16");
+    assertNotContains(stats, "Auto CAD");
     assertContains(stats, "RX packets</span><span class='v'>1234");
     assertContains(stats, "TX packets</span><span class='v'>5678");
     assertContains(stats, "CRC errors</span><span class='v'>9");

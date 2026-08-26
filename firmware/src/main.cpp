@@ -272,8 +272,8 @@ static _WiFiStub WiFi;
 
 // ─── Version ─────────────────────────────────────────────────
 // Base version is shared by every board; the board's fw_suffix
-// distinguishes one binary from another (e.g. "v1.1.0-ikoka").
-#define FW_VERSION_BASE "v1.1.0"
+// distinguishes one binary from another (e.g. "v1.2.0-ikoka").
+#define FW_VERSION_BASE "v1.2.0"
 static String fwVersion;   // populated in setup()
 
 // ─── Task watchdog — self-heal on loop() hang ───────────────
@@ -891,7 +891,8 @@ bool applyConfig(const RadioConfig& cfg) {
     state = radio.setCodingRate(cfg.cr);
     if (state != RADIOLIB_ERR_NONE) return false;
 
-    // Hardware ceiling per board (E22P868M30S = 30 dBm, bare SX1262 = 22).
+    // Board-specific RadioLib/SX1262 command-power ceiling. External PA gain
+    // is antenna-side output and must not be passed to setOutputPower().
     int8_t pwr = cfg.power_dbm;
     if (pwr > BOARD.max_tx_power_dbm) pwr = BOARD.max_tx_power_dbm;
     int currentLimitBefore = (int)radio.getCurrentLimit();

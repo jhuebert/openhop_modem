@@ -239,6 +239,9 @@ class AssetIntegrationTest(unittest.TestCase):
             (asset / "SHA256SUMS.txt").write_text("".join(
                 f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in files.items()
             ))
+            (fake_firmware / "platformio.ini").write_text(
+                "[env:rak4631_wismesh_eth]\n"
+            )
             output = Path(tmp) / "release"
             with mock.patch.object(release, "FIRMWARE", fake_firmware), \
                  mock.patch.object(release, "firmware_version_from_source", return_value="v-test"):
@@ -247,6 +250,26 @@ class AssetIntegrationTest(unittest.TestCase):
                 self.assertIn("firmware.ota", archive.namelist())
                 self.assertIn("firmware.zip", archive.namelist())
                 self.assertEqual(archive.read("firmware.zip"), zip_path.read_bytes())
+
+    def test_release_rejects_missing_or_unexpected_variant_assets(self) -> None:
+        release = importlib.import_module("package_release_assets")
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_firmware = Path(tmp) / "firmware"
+            unexpected = fake_firmware / "retired_board"
+            unexpected.mkdir(parents=True)
+            (unexpected / "SHA256SUMS.txt").write_text(
+                f"{'0' * 64}  firmware.bin\n"
+            )
+            (fake_firmware / "platformio.ini").write_text(
+                "[env:current_board]\n"
+            )
+            with mock.patch.object(release, "FIRMWARE", fake_firmware):
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "missing tracked assets for: current_board.*"
+                    "unexpected tracked asset directories: retired_board",
+                ):
+                    release.discover_asset_dirs()
 
     def test_rejects_ota_that_does_not_match_dfu_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
