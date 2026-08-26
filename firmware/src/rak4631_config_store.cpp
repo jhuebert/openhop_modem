@@ -87,7 +87,7 @@ Store::Slot Store::readSlot(uint32_t address) {
     return slot;
 }
 
-LoadResult Store::load(Rak4631Config::Config& config) {
+__attribute__((noinline)) LoadResult Store::load(Rak4631Config::Config& config) {
     const Slot a = readSlot(SLOT_A_ADDRESS);
     const Slot b = readSlot(SLOT_B_ADDRESS);
     scanned_ = true;

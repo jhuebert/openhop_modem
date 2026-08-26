@@ -11,9 +11,9 @@ constexpr size_t MAX_BODY_BYTES = 2048;
 constexpr size_t MAX_ROUTE_BYTES = 256;
 constexpr size_t MAX_QUERY_BYTES = 256;
 constexpr size_t MAX_HEADER_COUNT = 24;
-constexpr size_t MAX_FORM_FIELDS = 16;
-constexpr size_t MAX_FORM_KEY_BYTES = 64;
-constexpr size_t MAX_FORM_VALUE_BYTES = 256;
+constexpr size_t MAX_FORM_FIELDS = 8;
+constexpr size_t MAX_FORM_KEY_BYTES = 16;
+constexpr size_t MAX_FORM_VALUE_BYTES = 64;
 
 enum class Method : uint8_t { NONE = 0, GET, POST };
 enum class Result : uint8_t {

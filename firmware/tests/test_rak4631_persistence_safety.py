@@ -41,6 +41,14 @@ class Rak4631PersistenceSafetyTest(unittest.TestCase):
         save = text[text.index("bool saveConfig("):text.index("bool factoryReset(")]
         self.assertNotIn("Serial.", save)
 
+    def test_runtime_flash_uses_synchronous_nvmc_not_softdevice_cache(self) -> None:
+        text = CONFIG_SOURCE.read_text(encoding="utf-8")
+        flash = text[text.index("class NrfConfigFlash"):text.index("NrfConfigFlash configFlash")]
+        self.assertNotIn("flash_nrf5x_", flash)
+        self.assertIn("nrf_nvmc_page_erase_start", flash)
+        self.assertIn("nrf_nvmc_mode_set", flash)
+        self.assertIn("nrf_nvmc_ready_check", flash)
+
     def test_reboot_and_dfu_do_not_touch_internal_filesystem(self) -> None:
         bootloader = BOOTLOADER_SOURCE.read_text(encoding="utf-8")
         execute = bootloader[bootloader.index("void execute("):]

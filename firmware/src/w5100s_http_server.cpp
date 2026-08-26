@@ -338,41 +338,28 @@ bool saveManagementConfig(const Rak4631Config::Config& config, void*) {
 
 void armTransition(Rak4631WebHandlers::Transition transition) {
     if (transition == Rak4631WebHandlers::Transition::BLE_DFU)
-        deferredTransition.arm(BootloaderManager::Mode::BLE_OTA);
+        deferredTransition.arm(BootloaderManager::Mode::BLE_OTA, millis());
     else if (transition == Rak4631WebHandlers::Transition::REBOOT)
-        deferredTransition.arm(BootloaderManager::Mode::REBOOT);
+        deferredTransition.arm(BootloaderManager::Mode::REBOOT, millis());
 }
 
-void dispatch() {
-    const char* password = managementConfig.httpPassword;
-    if (!password[0]) password = DEFAULT_HTTP_PASSWORD;
-    if (!HttpRequest::basicAuthMatches(parser.header("Authorization"), AUTH_USER, password)) {
-        queueError(401, "authentication required", true);
-        return;
-    }
+__attribute__((noinline)) void dispatchManagementPost() {
+    Rak4631WebHandlers::Request request;
+    request.route = parser.request().route;
+    request.contentType = parser.header("Content-Type");
+    request.body = parser.request().body;
+    request.bodyLength = parser.request().bodyLength;
+    request.origin = parser.header("Origin");
+    request.host = parser.header("Host");
+    request.current = managementConfig;
+    request.gpsSupported = GPSManager::hasGpsPins();
+    const Rak4631WebHandlers::Response response =
+        Rak4631WebHandlers::handlePost(request, saveManagementConfig, nullptr);
+    queueResponse(response.status, response.contentType.c_str(), response.body);
+    if (clientState == ClientState::WRITING) armTransition(response.transition);
+}
 
-    const RouteAction action = classifyRoute(parser.request().method, parser.request().route);
-    if (action == RouteAction::NOT_FOUND) {
-        queueError(404, "not found");
-        return;
-    }
-    if (action == RouteAction::MANAGEMENT_POST) {
-        Rak4631WebHandlers::Request request;
-        request.route = parser.request().route;
-        request.contentType = parser.header("Content-Type");
-        request.body = parser.request().body;
-        request.bodyLength = parser.request().bodyLength;
-        request.origin = parser.header("Origin");
-        request.host = parser.header("Host");
-        request.current = managementConfig;
-        request.gpsSupported = GPSManager::hasGpsPins();
-        const Rak4631WebHandlers::Response response =
-            Rak4631WebHandlers::handlePost(request, saveManagementConfig, nullptr);
-        queueResponse(response.status, response.contentType.c_str(), response.body);
-        if (clientState == ClientState::WRITING) armTransition(response.transition);
-        return;
-    }
-
+__attribute__((noinline)) void dispatchReadOnly(RouteAction action) {
     const WebUiShared::Model model = buildModel();
     switch (action) {
         case RouteAction::ROOT_HTML:
@@ -395,6 +382,26 @@ void dispatch() {
             queueResponse(200, "application/json; charset=utf-8", WebUiShared::renderGpsJson(model)); break;
         default: queueError(404, "not found"); break;
     }
+}
+
+void dispatch() {
+    const char* password = managementConfig.httpPassword;
+    if (!password[0]) password = DEFAULT_HTTP_PASSWORD;
+    if (!HttpRequest::basicAuthMatches(parser.header("Authorization"), AUTH_USER, password)) {
+        queueError(401, "authentication required", true);
+        return;
+    }
+
+    const RouteAction action = classifyRoute(parser.request().method, parser.request().route);
+    if (action == RouteAction::NOT_FOUND) {
+        queueError(404, "not found");
+        return;
+    }
+    if (action == RouteAction::MANAGEMENT_POST) {
+        dispatchManagementPost();
+        return;
+    }
+    dispatchReadOnly(action);
 }
 
 void writeOneChunk() {

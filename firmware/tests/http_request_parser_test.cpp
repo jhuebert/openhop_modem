@@ -7,6 +7,9 @@
 
 using namespace HttpRequest;
 
+static_assert(sizeof(FormData) <= 1024,
+              "FormData must leave stack headroom in the 4 KiB nRF52 loop task");
+
 static Result feed(Parser& parser, const std::string& text, uint32_t now = 1) {
     return parser.feed(reinterpret_cast<const uint8_t*>(text.data()), text.size(), now);
 }
@@ -133,6 +136,11 @@ static void test_url_decode_and_form_parser() {
     assert(std::strcmp(form.get("plus"), "a+b") == 0);
     assert(form.get("missing") == nullptr);
     assert(!parseForm("broken", form));
+
+    const std::string longestValue(MAX_FORM_VALUE_BYTES, 'x');
+    assert(parseForm(std::string("token=").append(longestValue).c_str(), form));
+    assert(std::strcmp(form.get("token"), longestValue.c_str()) == 0);
+    assert(!parseForm(std::string("token=").append(longestValue).append("x").c_str(), form));
 }
 
 static void test_base64_and_basic_auth_without_exposing_credentials() {

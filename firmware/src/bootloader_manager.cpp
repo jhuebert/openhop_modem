@@ -2,9 +2,10 @@
 
 namespace BootloaderManager {
 
-void DeferredTransition::arm(Mode mode) {
+void DeferredTransition::arm(Mode mode, uint32_t nowMs) {
     if (mode_ != Mode::NONE || mode == Mode::NONE) return;
     mode_ = mode;
+    armedMs_ = nowMs;
     responseClosed_ = false;
     responseClosedMs_ = 0;
 }
@@ -17,18 +18,26 @@ void DeferredTransition::responseClosed(uint32_t nowMs) {
 
 void DeferredTransition::responseAborted() {
     if (responseClosed_) return;
+    // A durable configuration mutation requires a reboot even if the client
+    // disconnects or the W5100S never reports SEND_OK. Recovery/DFU actions
+    // still require a successfully completed response before transition.
+    if (mode_ == Mode::REBOOT) return;
     mode_ = Mode::NONE;
+    armedMs_ = 0;
     responseClosed_ = false;
     responseClosedMs_ = 0;
 }
 
 void DeferredTransition::poll(uint32_t nowMs, TransitionCallback callback, void* context) {
-    if (mode_ == Mode::NONE || !responseClosed_ ||
-        static_cast<uint32_t>(nowMs - responseClosedMs_) < TRANSITION_DELAY_MS) {
-        return;
-    }
+    if (mode_ == Mode::NONE) return;
+    const bool responseReady = responseClosed_ &&
+        static_cast<uint32_t>(nowMs - responseClosedMs_) >= TRANSITION_DELAY_MS;
+    const bool rebootFallbackReady = mode_ == Mode::REBOOT &&
+        static_cast<uint32_t>(nowMs - armedMs_) >= REBOOT_FALLBACK_DELAY_MS;
+    if (!responseReady && !rebootFallbackReady) return;
     const Mode mode = mode_;
     mode_ = Mode::NONE;
+    armedMs_ = 0;
     responseClosed_ = false;
     responseClosedMs_ = 0;
     if (callback) callback(mode, context);

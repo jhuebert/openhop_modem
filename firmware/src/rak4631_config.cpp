@@ -308,7 +308,7 @@ bool rewriteIntegrity(uint8_t* data, size_t length) {
 #include "compat.h"
 #include "rak4631_config_store.h"
 
-#include <flash/flash_nrf5x.h>
+#include <hal/nrf_nvmc.h>
 #include <nrf_sdm.h>
 
 #ifndef OPENHOP_ETH_TCP_PORT
@@ -364,8 +364,12 @@ class NrfConfigFlash final : public Rak4631ConfigStore::Flash {
 public:
     bool erasePage(uint32_t address) override {
         if (!validSlot(address) || !flashWritesAreSynchronous()) return false;
-        flash_nrf5x_flush();
-        if (!flash_nrf5x_erase(address)) return false;
+        if (!waitUntilReady()) return false;
+        nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_ERASE);
+        nrf_nvmc_page_erase_start(NRF_NVMC, address);
+        const bool erased = waitUntilReady();
+        nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_READONLY);
+        if (!erased || !waitUntilReady()) return false;
         const uint8_t* page = reinterpret_cast<const uint8_t*>(address);
         for (size_t i = 0; i < Rak4631ConfigStore::PAGE_SIZE; ++i) {
             if (page[i] != 0xff) return false;
@@ -379,22 +383,40 @@ public:
             !flashWritesAreSynchronous()) {
             return false;
         }
-        const int written =
-            flash_nrf5x_write(address, data, static_cast<uint32_t>(length));
-        flash_nrf5x_flush();
-        return written == static_cast<int>(length) &&
+        if (!waitUntilReady()) return false;
+        nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_WRITE);
+        bool written = true;
+        for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
+            uint32_t word = 0;
+            memcpy(&word, data + offset, sizeof(word));
+            *reinterpret_cast<volatile uint32_t*>(address + offset) = word;
+            if (!waitUntilReady()) {
+                written = false;
+                break;
+            }
+        }
+        nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_READONLY);
+        return written && waitUntilReady() &&
                memcmp(reinterpret_cast<const void*>(address), data, length) == 0;
     }
 
     bool read(uint32_t address, uint8_t* data, size_t length) override {
         if (!validRange(address, length) || data == nullptr || length == 0)
             return false;
-        flash_nrf5x_flush();
-        return flash_nrf5x_read(data, address, static_cast<uint32_t>(length)) ==
-               static_cast<int>(length);
+        memcpy(data, reinterpret_cast<const void*>(address), length);
+        return true;
     }
 
 private:
+    static bool waitUntilReady() {
+        // A page erase is normally tens of milliseconds. Keep the poll bounded
+        // so an NVMC fault cannot strand the network loop forever.
+        constexpr uint32_t READY_POLL_LIMIT = 16000000u;
+        for (uint32_t attempt = 0; attempt < READY_POLL_LIMIT; ++attempt) {
+            if (nrf_nvmc_ready_check(NRF_NVMC)) return true;
+        }
+        return false;
+    }
     static bool validSlot(uint32_t address) {
         return address == Rak4631ConfigStore::SLOT_A_ADDRESS ||
                address == Rak4631ConfigStore::SLOT_B_ADDRESS;

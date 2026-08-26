@@ -275,7 +275,8 @@ bool parseJsonConfig(const Request& request, Config& config) {
     return json.objectEnd() && json.done();
 }
 
-Response handleHostname(const Request& request, SaveCallback save, void* context) {
+__attribute__((noinline)) Response handleHostname(const Request& request, SaveCallback save,
+                                                  void* context) {
     static const char* const allowed[] = {"hostname"};
     HttpRequest::FormData form;
     if (!parseFormRequest(request, form, allowed)) return error(400, "invalid form fields");
@@ -284,7 +285,8 @@ Response handleHostname(const Request& request, SaveCallback save, void* context
     return persist(config, save, context);
 }
 
-Response handleNetwork(const Request& request, SaveCallback save, void* context) {
+__attribute__((noinline)) Response handleNetwork(const Request& request, SaveCallback save,
+                                                 void* context) {
     static const char* const allowed[] = {"static", "ip", "sn", "gw", "dns1", "dns2", "port"};
     HttpRequest::FormData form;
     if (!parseFormRequest(request, form, allowed)) return error(400, "invalid form fields");
@@ -306,7 +308,8 @@ Response handleNetwork(const Request& request, SaveCallback save, void* context)
     return persist(config, save, context);
 }
 
-Response handleToken(const Request& request, SaveCallback save, void* context) {
+__attribute__((noinline)) Response handleToken(const Request& request, SaveCallback save,
+                                               void* context) {
     static const char* const allowed[] = {"token", "confirm"};
     HttpRequest::FormData form;
     if (!parseFormRequest(request, form, allowed)) return error(400, "invalid form fields");
@@ -318,7 +321,8 @@ Response handleToken(const Request& request, SaveCallback save, void* context) {
     return persist(config, save, context);
 }
 
-Response handleAuth(const Request& request, SaveCallback save, void* context) {
+__attribute__((noinline)) Response handleAuth(const Request& request, SaveCallback save,
+                                              void* context) {
     static const char* const allowed[] = {"password", "confirm"};
     HttpRequest::FormData form;
     if (!parseFormRequest(request, form, allowed)) return error(400, "invalid form fields");
@@ -331,7 +335,8 @@ Response handleAuth(const Request& request, SaveCallback save, void* context) {
     return persist(config, save, context, false);
 }
 
-Response handleGps(const Request& request, SaveCallback save, void* context) {
+__attribute__((noinline)) Response handleGps(const Request& request, SaveCallback save,
+                                             void* context) {
     static const char* const allowed[] = {"gps_enabled"};
     HttpRequest::FormData form;
     if (!request.gpsSupported || !parseFormRequest(request, form, allowed))
@@ -341,6 +346,22 @@ Response handleGps(const Request& request, SaveCallback save, void* context) {
     Config config = request.current;
     config.gpsEnabled = enabled != nullptr;
     return persist(config, save, context);
+}
+
+__attribute__((noinline)) Response handleJsonConfig(const Request& request, SaveCallback save,
+                                                    void* context) {
+    if (!exactContentType(request, JSON)) return error(415, "unsupported content type");
+    Config config = request.current;
+    if (!parseJsonConfig(request, config)) return error(400, "invalid JSON configuration");
+    Response response = persist(config, save, context);
+    if (response.status == 200) {
+        response.body = std::string("{\"status\":\"saved\",\"rebooting\":true,\"config\":{") +
+            "\"hostname\":\"" + config.hostname + "\",\"tcp_port\":" +
+            std::to_string(config.tcpPort) + ",\"tcp_token_set\":" +
+            (config.tcpToken[0] ? "true" : "false") + ",\"gps_enabled\":" +
+            (config.gpsEnabled ? "true" : "false") + "}}";
+    }
+    return response;
 }
 
 }  // namespace
@@ -372,20 +393,8 @@ Response handlePost(const Request& request, SaveCallback save, void* context) {
     if (std::strcmp(request.route, "/token") == 0) return handleToken(request, save, context);
     if (std::strcmp(request.route, "/auth") == 0) return handleAuth(request, save, context);
     if (std::strcmp(request.route, "/gps") == 0) return handleGps(request, save, context);
-    if (std::strcmp(request.route, "/api/config") == 0) {
-        if (!exactContentType(request, JSON)) return error(415, "unsupported content type");
-        Config config = request.current;
-        if (!parseJsonConfig(request, config)) return error(400, "invalid JSON configuration");
-        Response response = persist(config, save, context);
-        if (response.status == 200) {
-            response.body = std::string("{\"status\":\"saved\",\"rebooting\":true,\"config\":{") +
-                "\"hostname\":\"" + config.hostname + "\",\"tcp_port\":" +
-                std::to_string(config.tcpPort) + ",\"tcp_token_set\":" +
-                (config.tcpToken[0] ? "true" : "false") + ",\"gps_enabled\":" +
-                (config.gpsEnabled ? "true" : "false") + "}}";
-        }
-        return response;
-    }
+    if (std::strcmp(request.route, "/api/config") == 0)
+        return handleJsonConfig(request, save, context);
     return error(404, "not found");
 }
 

@@ -6,12 +6,15 @@ namespace BootloaderManager {
 
 enum class Mode : uint8_t { NONE = 0, UF2_USB, BLE_OTA, REBOOT };
 constexpr uint32_t TRANSITION_DELAY_MS = 150;
+// The HTTP response state machine gives up after 5 seconds. Allow that path to
+// finish first, then force a saved/reboot action to complete one second later.
+constexpr uint32_t REBOOT_FALLBACK_DELAY_MS = 6000;
 
 using TransitionCallback = void (*)(Mode mode, void* context);
 
 class DeferredTransition {
 public:
-    void arm(Mode mode);
+    void arm(Mode mode, uint32_t nowMs);
     void responseClosed(uint32_t nowMs);
     void responseAborted();
     void poll(uint32_t nowMs, TransitionCallback callback, void* context);
@@ -20,6 +23,7 @@ public:
 
 private:
     Mode mode_ = Mode::NONE;
+    uint32_t armedMs_ = 0;
     bool responseClosed_ = false;
     uint32_t responseClosedMs_ = 0;
 };
