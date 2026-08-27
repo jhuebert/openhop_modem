@@ -168,6 +168,7 @@ void testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus() {
     assertContains(html, "data-reboot-save='hostname'");
     assertContains(html, "data-reboot-save='network'");
     assertContains(html, "new URLSearchParams(new FormData(form))");
+    assertContains(html, "headers:{'Content-Type':'application/x-www-form-urlencoded'}");
     assertContains(html, "location.replace(target)");
     assertContains(html, "Settings saved. Modem is rebooting");
     assertContains(html, "name='port'");
