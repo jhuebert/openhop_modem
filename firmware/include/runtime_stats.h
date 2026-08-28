@@ -12,6 +12,8 @@ struct Snapshot {
     String firmwareVersion;
     bool radioStandby;
     bool autoCadEnabled;
+    bool fallbackRepeatEnabled;
+    bool fallbackActive;
     bool hasBatteryChargeRatePctPerHour;
     bool batteryChargeRatePctPerHourValid;
     float batteryChargeRatePctPerHour;

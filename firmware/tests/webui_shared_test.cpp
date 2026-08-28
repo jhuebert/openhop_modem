@@ -105,6 +105,7 @@ void testEspRootPreservesCurrentControls() {
     Model model = makeEspModel();
     model.capabilities.wifiAntennaSelection = true;
     model.capabilities.gps = true;
+    model.capabilities.fallbackRepeat = true;
     model.gps.available = true;
 
     const std::string html = renderRootPage(model);
@@ -113,8 +114,17 @@ void testEspRootPreservesCurrentControls() {
     assertContains(html, "Wi-Fi Setup Mode");
     assertContains(html, "wifi_ant_ext");
     assertContains(html, "<summary>GPS</summary>");
+    assertContains(html, "<summary>Fallback Repeat</summary>");
+    assertContains(html, "action='/fallback-repeat'");
+    assertContains(html, "name='fallback_repeat'");
     assertContains(html, "heltec-test.local");
     assertNotContains(html, "Ethernet OTA unavailable");
+
+    const std::string radio = renderRadioJson(model);
+    assertContains(radio, "\"fallback_repeat_enabled\":false");
+    assertContains(radio, "\"fallback_active\":false");
+    const std::string config = renderConfigJson(model);
+    assertContains(config, "\"fallback_repeat_enabled\":false");
 }
 
 void testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus() {
@@ -163,6 +173,8 @@ void testEthernetRootHasOnlyEthernetControlsAndHonestOtaStatus() {
     assertNotContains(html, "rak-gateway.local");
     assertNotContains(html, "type='file'");
     assertNotContains(html, "<summary>GPS</summary>");
+    assertNotContains(html, "<summary>Fallback Repeat</summary>");
+    assertNotContains(html, "action='/fallback-repeat'");
     assertContains(html, "action='/hostname'");
     assertContains(html, "action='/network'");
     assertContains(html, "data-reboot-save='hostname'");

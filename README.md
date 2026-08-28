@@ -252,11 +252,11 @@ RAK JSON responses expose `tcp_token_set`, never the token.
 Pre-v0.8 firmware used `heltec:<tcp_token>` on `/update` only — that
 scheme is gone, the same credential pair now covers every HTTP path.
 
-## Wire protocol v0.7
+## Wire protocol v0.8
 
 *(Full command list in `firmware/include/protocol.h`; the section below is
-summarised. Reported firmware version is `v0.8.0-<BoardConfig.fw_suffix>`,
-e.g. `v0.8.0-heltec_t114`.)*
+summarised. Reported firmware version is `v1.3.0-<BoardConfig.fw_suffix>`,
+e.g. `v1.3.0-heltec_t114`.)*
 
 ### Frame format
 
@@ -285,6 +285,7 @@ CRC-16/CCITT (poly 0x1021, init 0xFFFF) over CMD+LEN+PAYLOAD.
 | 0x42 | RADIO_RESUME      | — (v0.7; chip → RX continuous)        |
 | 0x48 | SET_DISPLAY_NAME  | utf-8 bytes (v0.7; persisted to NVS)  |
 | 0x4A | SET_AUTO_CAD      | 1 B (v0.7; T114 auto-CAD before TX)   |
+| 0x4C | SET_FALLBACK_REPEAT | 1 B (v0.8; fallback flood-repeat when host silent) |
 | 0x50 | AUTH              | token bytes (TCP only)                |
 | 0x60 | WIFI_RESET        | —                                     |
 | 0x61 | GET_WIFI          | —                                     |
@@ -321,6 +322,7 @@ Modem bootloader, which is not currently planned. Use the generated
 | 0x46 | RADIO_RESUME_RESP | — (v0.7)                              |
 | 0x49 | SET_DISPLAY_NAME_RESP | — (v0.7)                          |
 | 0x4B | SET_AUTO_CAD_RESP | — (v0.7)                              |
+| 0x4D | SET_FALLBACK_REPEAT_RESP | — (v0.8)                       |
 | 0x51 | AUTH_OK           | —                                     |
 | 0x62 | WIFI_STATUS       | mode + ip + port + ssid + hostname    |
 | 0x71 | VERSION_RESP      | ASCII version string                  |
@@ -351,6 +353,39 @@ overrides these via `CMD_SET_CONFIG` at `begin()`:
 | CRC          | CRC-8          |
 | IQ           | Standard       |
 | LDRO         | Auto           |
+
+## Fallback repeat mode ("repeater down" survival mode)
+
+The modem is a dumb transport: all MeshCore protocol logic runs on the host
+in openHop Core. If the host dies (power outage, Pi failure), the mesh loses
+a repeater node. Optional **fallback repeat mode** (default OFF) lets the
+modem stand in: when no valid host frame has arrived on any transport for
+120 s, it repeats flood-routed packets itself. The first valid host frame
+disengages it instantly, so normal operation with a healthy host is
+byte-for-byte unchanged.
+
+What it repeats (mirrors MeshCore repeater behavior): flood-routed packets
+only (`ROUTE_TYPE_TRANSPORT_FLOOD` / `ROUTE_TYPE_FLOOD`), payload types
+0x00–0x08 only, duplicates dropped via a payload-hash seen-table, own path
+hash appended (deterministic per-device MAC-derived value, path bounded at
+64 B), MeshCore random retransmit delay, and auto-CAD before every repeat.
+
+What it is **not**: no identity, no ACKs, no adverts, no direct-routed
+packets, no policy engine, no storage — flood traffic keeps flowing;
+node-facing services pause with the host.
+
+Enable it via the web UI checkbox (networked boards; saved and applied after
+reboot) or `CMD_SET_FALLBACK_REPEAT` over the protocol (persisted on T114,
+like `CMD_SET_AUTO_CAD`). `radio.json` exposes `fallback_repeat_enabled` and
+`fallback_active`. The last host-pushed radio config is persisted
+unconditionally, so a modem power cycle during an outage comes back on the
+right preset instead of the compiled-in default.
+
+Notes:
+- Regulatory duty-cycle limits are not enforced (MeshCore repeaters don't
+  enforce them either); auto-CAD and the random delay keep channel discipline.
+- In sector arrays every modem falls back independently; each sector repeats
+  during the outage.
 
 ## On-device display
 

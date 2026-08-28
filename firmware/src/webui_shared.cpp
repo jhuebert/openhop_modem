@@ -210,6 +210,9 @@ std::string renderRootPage(const Model& m) {
     if (m.capabilities.gps && m.capabilities.writableManagement) {
         body += "<details open><summary>GPS</summary><div class='inside'><p>Turn the onboard GPS receiver interface on only when location data is needed. Default is off to save battery.</p><form method='POST' action='/gps'><div class='checkline'><input type='checkbox' id='gps_enabled' name='gps_enabled' value='1'" + std::string(m.config.gpsEnabled ? " checked" : "") + "><label for='gps_enabled'>Enable GPS</label></div><button type='submit'>Save GPS setting</button></form><p class='m'>Saved atomically and applied after reboot.</p></div></details>";
     }
+    if (m.capabilities.fallbackRepeat && m.capabilities.writableManagement) {
+        body += "<details open><summary>Fallback Repeat</summary><div class='inside'><p>When the host repeater has been silent for a few minutes, the modem repeats flood-routed packets itself so the mesh keeps its relay capability during a host outage. It never repeats while the host is alive. Default is off.</p><form method='POST' action='/fallback-repeat'><div class='checkline'><input type='checkbox' id='fallback_repeat_enabled' name='fallback_repeat' value='1'" + std::string(m.config.fallbackRepeatEnabled ? " checked" : "") + "><label for='fallback_repeat_enabled'>Enable fallback repeat mode</label></div><button type='submit'>Save fallback repeat setting</button></form><p class='m'>Saved and applied after reboot.</p></div></details>";
+    }
     if (m.capabilities.ethernet && (m.capabilities.battery || m.capabilities.gps)) {
         body += "<details open><summary>Device Status</summary><div class='inside'><div class='grid'>";
         if (m.capabilities.battery) {
@@ -296,7 +299,7 @@ std::string renderSystemJson(const Model& m) {
 }
 
 std::string renderRadioJson(const Model& m) {
-    std::string out = "{\"state\":" + quote(m.radio.state) + ",\"standby\":" + boolean(m.radio.standby) + ",\"auto_cad_enabled\":" + boolean(m.radio.autoCadEnabled) + ",\"frequency_hz\":" + number(m.radio.frequencyHz) + ",\"frequency_mhz\":" + fixed(m.radio.frequencyHz / 1000000.0, 3) + ",\"bandwidth_hz\":" + number(m.radio.bandwidthHz) + ",\"bandwidth_khz\":" + fixed(m.radio.bandwidthHz / 1000.0, 1) + ",\"spreading_factor\":" + number(m.radio.spreadingFactor) + ",\"coding_rate\":" + number(m.radio.codingRate) + ",\"tx_power_dbm\":" + number(m.radio.txPowerDbm) + ",\"syncword\":" + quote(hexByte(m.radio.syncword)) + ",\"syncword_value\":" + number(m.radio.syncword) + ",\"preamble_len\":" + number(m.radio.preambleLength);
+    std::string out = "{\"state\":" + quote(m.radio.state) + ",\"standby\":" + boolean(m.radio.standby) + ",\"auto_cad_enabled\":" + boolean(m.radio.autoCadEnabled) + ",\"fallback_repeat_enabled\":" + boolean(m.radio.fallbackRepeatEnabled) + ",\"fallback_active\":" + boolean(m.radio.fallbackActive) + ",\"frequency_hz\":" + number(m.radio.frequencyHz) + ",\"frequency_mhz\":" + fixed(m.radio.frequencyHz / 1000000.0, 3) + ",\"bandwidth_hz\":" + number(m.radio.bandwidthHz) + ",\"bandwidth_khz\":" + fixed(m.radio.bandwidthHz / 1000.0, 1) + ",\"spreading_factor\":" + number(m.radio.spreadingFactor) + ",\"coding_rate\":" + number(m.radio.codingRate) + ",\"tx_power_dbm\":" + number(m.radio.txPowerDbm) + ",\"syncword\":" + quote(hexByte(m.radio.syncword)) + ",\"syncword_value\":" + number(m.radio.syncword) + ",\"preamble_len\":" + number(m.radio.preambleLength);
     if (m.capabilities.heltecV43Controls) out += ",\"heltec_v43_external_lna_enabled\":" + boolean(m.config.heltecV43ExternalLnaEnabled) + ",\"heltec_v43_fem_lna_bypassed\":" + boolean(m.config.heltecV43FemLnaBypassed) + ",\"agc_reset_interval_sec\":" + number(m.config.agcResetIntervalSec);
     return out + "}";
 }
@@ -320,7 +323,7 @@ std::string renderConfigJson(const Model& m) {
     out += ",\"tcp_port\":" + number(m.config.tcpPort) + ",\"use_static_ip\":" + boolean(m.config.useStaticIp) + ",\"static_ip\":" + nullableString(m.config.staticIp) + ",\"subnet\":" + nullableString(m.config.subnet) + ",\"gateway\":" + nullableString(m.config.gateway) + ",\"dns1\":" + nullableString(m.config.dns1) + ",\"dns2\":" + nullableString(m.config.dns2);
     if (m.capabilities.wifiAntennaSelection) out += ",\"wifi_external_antenna\":" + boolean(m.config.wifiExternalAntenna);
     if (m.capabilities.heltecV43Controls) out += ",\"heltec_v43_external_lna_enabled\":" + boolean(m.config.heltecV43ExternalLnaEnabled) + ",\"heltec_v43_fem_lna_bypassed\":" + boolean(m.config.heltecV43FemLnaBypassed) + ",\"agc_reset_interval_sec\":" + number(m.config.agcResetIntervalSec);
-    out += ",\"gps_enabled\":" + boolean(m.config.gpsEnabled) + ",\"gps_available\":" + boolean(m.capabilities.gps) + "}";
+    out += ",\"gps_enabled\":" + boolean(m.config.gpsEnabled) + ",\"gps_available\":" + boolean(m.capabilities.gps) + ",\"fallback_repeat_enabled\":" + boolean(m.config.fallbackRepeatEnabled) + "}";
     return out;
 }
 

@@ -9,6 +9,9 @@
 //        / CHUNK / VERIFY / APPLY / ABORT). Wire format and existing
 //        CMD_* values unchanged — pre-v0.7 hosts work against v0.7
 //        firmware and vice versa, they just skip the new commands.
+// v0.8 — CMD_SET_FALLBACK_REPEAT: enables/disables the fallback
+//        flood-repeat mode ("repeater down" survival mode). Wire
+//        format and existing CMD_* values unchanged.
 // =============================================================
 #pragma once
 
@@ -31,6 +34,7 @@
 #define CMD_RADIO_RESUME    0x42    // v0.7 — re-apply config + startReceive after STANDBY
 #define CMD_SET_DISPLAY_NAME 0x48   // v0.7 — payload = ASCII name (≤16 B), shown big on the TFT
 #define CMD_SET_AUTO_CAD     0x4A   // v0.7 — payload = 1B (0=off, 1=auto CAD before TX); persisted in T114 NVS
+#define CMD_SET_FALLBACK_REPEAT 0x4C // v0.8 — payload = 1B (0=off, 1=fallback flood-repeat when host is silent); persisted on T114
 #define CMD_AUTH            0x50    // Authenticate TCP client (payload = token bytes)
 #define CMD_WIFI_RESET      0x60    // Wipe Wi-Fi config from NVS and reboot into AP mode
 #define CMD_GET_WIFI        0x61    // v0.5 — Query Wi-Fi/OTA status (mode, IP, SSID, hostname)
@@ -67,6 +71,7 @@
 #define CMD_RADIO_RESUME_RESP  0x46 // v0.7 — ack for CMD_RADIO_RESUME  (1B status: 0=ok, 1=fail)
 #define CMD_SET_DISPLAY_NAME_RESP 0x49 // v0.7 — ack for CMD_SET_DISPLAY_NAME
 #define CMD_SET_AUTO_CAD_RESP 0x4B   // v0.7 — 1B status (0=ok)
+#define CMD_SET_FALLBACK_REPEAT_RESP 0x4D // v0.8 — 1B status (0=ok)
 #define CMD_LOG_MSG         0x80    // v0.7 — async log line:
                                     //   level(1B: 0=INFO, 1=WARN, 2=ERR) | text(N)
 #define CMD_OTA_BEGIN_RESP  0x91    // v0.7 — 1B status (0=ready, 1=no_space, 2=busy, 3=unsupported)

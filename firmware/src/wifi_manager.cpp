@@ -84,6 +84,7 @@ static void loadConfig() {
     cfg.tcpPort     = p.getUShort("port", DEFAULT_TCP_PORT);
     cfg.wifiExternalAntenna = p.getBool("ant_ext", false);
     cfg.gpsEnabled  = p.getBool("gps_en", false);
+    cfg.fallbackRepeatEnabled = p.getBool("fb_rep", false);
     p.end();
 }
 
@@ -180,6 +181,7 @@ void saveConfig(const Config& newCfg) {
         p.putBool("ant_ext", newCfg.wifiExternalAntenna);
     }
     p.putBool("gps_en", newCfg.gpsEnabled);
+    p.putBool("fb_rep", newCfg.fallbackRepeatEnabled);
     p.end();
     cfg = newCfg;
     cfg.hostname = sanitizeHostname(cfg.hostname);
@@ -187,6 +189,22 @@ void saveConfig(const Config& newCfg) {
         cfg.wifiExternalAntenna = false;
     }
     refreshEffectiveHostname();
+}
+
+void saveRadioConfig(const void* data, size_t len) {
+    Preferences p;
+    if (!p.begin(NVS_NAMESPACE, false)) return;
+    p.putBytes("radio_cfg", data, len);
+    p.end();
+}
+
+bool loadRadioConfig(void* out, size_t len) {
+    Preferences p;
+    if (!p.begin(NVS_NAMESPACE, true)) return false;
+    bool ok = p.getBytesLength("radio_cfg") == len &&
+              p.getBytes("radio_cfg", out, len) == len;
+    p.end();
+    return ok;
 }
 
 void factoryReset() {

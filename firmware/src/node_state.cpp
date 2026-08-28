@@ -15,10 +15,13 @@ namespace NodeState {
 static const char* PATH_NAME    = "/state_name";
 static const char* PATH_STANDBY = "/state_stby";
 static const char* PATH_AUTOCAD = "/state_acad";
+static const char* PATH_FBREP   = "/state_fbrep";
+static const char* PATH_RADIO   = "/state_radio";
 
 static char  s_name[24]  = "";
 static bool  s_standby   = false;
 static bool  s_auto_cad  = false;
+static bool  s_fbrep     = false;
 static bool  s_ready     = false;
 
 static void readFile(const char* path, char* buf, size_t cap) {
@@ -56,12 +59,17 @@ void begin() {
     readFile(PATH_AUTOCAD, tmp2, sizeof(tmp2));
     s_auto_cad = (tmp2[0] == '1');
 
+    char tmp3[4] = {};
+    readFile(PATH_FBREP, tmp3, sizeof(tmp3));
+    s_fbrep = (tmp3[0] == '1');
+
     s_ready = true;
 }
 
 const char* getDisplayName() { return s_name; }
 bool getStandby()            { return s_standby; }
 bool getAutoCad()            { return s_auto_cad; }
+bool getFallbackRepeat()     { return s_fbrep; }
 
 void setDisplayName(const char* name) {
     if (!name) name = "";
@@ -82,6 +90,27 @@ void setAutoCad(bool on) {
     s_auto_cad = on;
     char c = on ? '1' : '0';
     writeFile(PATH_AUTOCAD, &c, 1);
+}
+
+void setFallbackRepeat(bool on) {
+    if (s_fbrep == on) return;
+    s_fbrep = on;
+    char c = on ? '1' : '0';
+    writeFile(PATH_FBREP, &c, 1);
+}
+
+bool loadRadioConfig(uint8_t* out, size_t len) {
+    begin();
+    File f(InternalFS);
+    if (!f.open(PATH_RADIO, FILE_O_READ)) return false;
+    int n = f.read(out, len);
+    f.close();
+    return n == (int)len;
+}
+
+void saveRadioConfig(const uint8_t* data, size_t len) {
+    begin();
+    writeFile(PATH_RADIO, data, len);
 }
 
 }   // namespace NodeState

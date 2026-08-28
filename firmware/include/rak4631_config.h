@@ -48,6 +48,9 @@ struct Config {
     // Preserved for compatibility with the current shared configuration shape.
     // Task 2 does not add any further GPS settings.
     bool gpsEnabled;
+    // Encoded as a spare bit of the existing flags byte, so the wire record
+    // size (and therefore old-firmware compatibility) is unchanged.
+    bool fallbackRepeat;
 
     bool operator==(const Config& other) const;
 };
@@ -77,5 +80,13 @@ const char* getEffectiveHostname();
 // The installed RAK/Adafruit DFU bootloader advertises with the application
 // BLE address's least-significant byte incremented by one.
 const char* getDfuBluetoothAddress();
+
+#if defined(BOARD_RAK4631_WISMESH_ETH)
+// Last host-pushed radio config record (CMD_SET_CONFIG payload), stored on a
+// dedicated flash page so the modem boots on the host's last radio preset
+// after a power cycle. loadRadioConfig returns false when nothing was saved.
+bool saveRadioConfig(const void* data, size_t len);
+bool loadRadioConfig(void* out, size_t len);
+#endif
 
 }  // namespace Rak4631Config

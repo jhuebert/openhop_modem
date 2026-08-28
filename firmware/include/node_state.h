@@ -27,10 +27,19 @@ void begin();                                   // load from LittleFS at boot
 bool        getStandby();
 const char* getDisplayName();                   // returns "" if never set
 bool        getAutoCad();
+bool        getFallbackRepeat();
 
 void setDisplayName(const char* name);          // saves to LittleFS
 void setStandby(bool on);                       // saves to LittleFS
 void setAutoCad(bool on);                       // saves to LittleFS
+void setFallbackRepeat(bool on);                // saves to LittleFS
+
+// Last host-pushed radio config (CMD_SET_CONFIG payload, sizeof bytes).
+// Restored at boot so the fallback repeater survives a modem power
+// cycle without re-deriving the radio preset. Returns false when none
+// was ever persisted.
+bool loadRadioConfig(uint8_t* out, size_t len);
+void saveRadioConfig(const uint8_t* data, size_t len);
 
 }   // namespace NodeState
 

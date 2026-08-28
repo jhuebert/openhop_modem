@@ -31,7 +31,8 @@ Rak4631Config::Config defaults() {
 
 Response request(const char* route, const char* contentType, const std::string& body,
                  Store& store, bool gpsSupported = true,
-                 const char* origin = nullptr, const char* host = nullptr) {
+                 const char* origin = nullptr, const char* host = nullptr,
+                 bool fallbackRepeatSupported = true) {
     Request input{};
     input.route = route;
     input.contentType = contentType;
@@ -41,6 +42,7 @@ Response request(const char* route, const char* contentType, const std::string& 
     input.host = host;
     input.current = defaults();
     input.gpsSupported = gpsSupported;
+    input.fallbackRepeatSupported = fallbackRepeatSupported;
     return handlePost(input, save, &store);
 }
 
@@ -254,6 +256,38 @@ void testPersistenceFailureDoesNotScheduleTransition() {
     assert(response.transition == Transition::NONE);
 }
 
+void testFallbackRepeatSetting() {
+    Store store;
+    auto response = request("/fallback-repeat", "application/x-www-form-urlencoded",
+                            "fallback_repeat=1", store);
+    assert(response.status == 200);
+    assert(response.transition == Transition::REBOOT);
+    assert(store.saved.fallbackRepeat);
+
+    store = {};
+    response = request("/fallback-repeat", "application/x-www-form-urlencoded", "", store);
+    assert(response.status == 200);
+    assert(!store.saved.fallbackRepeat);
+
+    store = {};
+    response = request("/fallback-repeat", "application/x-www-form-urlencoded",
+                       "fallback_repeat=1", store, true, nullptr, nullptr, false);
+    assert(response.status == 400);
+
+    store = {};
+    response = request(
+        "/api/config", "application/json",
+        R"({"fallback_repeat_enabled":true})", store);
+    assert(response.status == 200);
+    assert(store.saved.fallbackRepeat);
+
+    store = {};
+    response = request(
+        "/api/config", "application/json",
+        R"({"fallback_repeat_enabled":true})", store, true, nullptr, nullptr, false);
+    assert(response.status == 400);
+}
+
 void testBrowserOriginMustMatchHost() {
     Store store;
     auto response = request("/hostname", "application/x-www-form-urlencoded",
@@ -278,6 +312,7 @@ int main() {
     testJsonConfigStrictPartialUpdates();
     testExactDfuAndRebootContracts();
     testPersistenceFailureDoesNotScheduleTransition();
+    testFallbackRepeatSetting();
     testBrowserOriginMustMatchHost();
     std::cout << "rak4631 web handler tests passed\n";
 }

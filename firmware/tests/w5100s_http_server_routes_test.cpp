@@ -26,6 +26,7 @@ int main() {
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/token") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/auth") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/gps") == RouteAction::MANAGEMENT_POST);
+    assert(W5100sHttpServer::classifyRoute(Method::POST, "/fallback-repeat") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/dfu/ble") == RouteAction::MANAGEMENT_POST);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/api/dfu/ble") == RouteAction::NOT_FOUND);
     assert(W5100sHttpServer::classifyRoute(Method::POST, "/ble-dfu") == RouteAction::NOT_FOUND);

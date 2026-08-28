@@ -74,6 +74,8 @@ Station G3 example:
   "state": "RX/Idle",
   "standby": false,
   "auto_cad_enabled": false,
+  "fallback_repeat_enabled": false,
+  "fallback_active": false,
   "frequency_hz": 910525000,
   "frequency_mhz": 910.525,
   "bandwidth_hz": 62500,
@@ -91,6 +93,11 @@ Station G3 example:
 
 `pa_high_power_enabled` and `station_g3_external_lna_enabled` are Station G3-only.
 The LNA setting controls receive mode; firmware always bypasses the LNA before TX.
+
+`fallback_repeat_enabled` reports the saved fallback repeat mode flag.
+`fallback_active` is `true` while the modem is actually standing in for the
+host repeater (enabled and no valid host frame for 120 s). Both are present
+on every build with a LoRa radio.
 
 ### `GET /api/network`
 
@@ -180,6 +187,10 @@ Accepted top-level fields:
   receive-only external LNA on GPIO10. The setting applies immediately,
   persists across reboots, and never enables the LNA during TX.
 - `gps_enabled` on RAK builds where GPS support was explicitly compiled in
+- `fallback_repeat_enabled` — enables or disables the fallback flood-repeat
+  mode ("repeater down" survival mode). The setting persists and applies
+  after reboot; see the README's "Fallback repeat mode" section. Rejected on
+  boards without a LoRa radio.
 
 `network` fields:
 - `use_static_ip`

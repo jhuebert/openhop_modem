@@ -266,6 +266,8 @@ bool parseJsonConfig(const Request& request, Config& config) {
             if (!json.boolean(config.useStaticIP)) return false;
         } else if (key == "gps_enabled") {
             if (!request.gpsSupported || !json.boolean(config.gpsEnabled)) return false;
+        } else if (key == "fallback_repeat_enabled") {
+            if (!request.fallbackRepeatSupported || !json.boolean(config.fallbackRepeat)) return false;
         } else if (key == "network") {
             if (!parseNetwork(json, config)) return false;
         } else {
@@ -348,6 +350,21 @@ __attribute__((noinline)) Response handleGps(const Request& request, SaveCallbac
     return persist(config, save, context);
 }
 
+__attribute__((noinline)) Response handleFallbackRepeat(const Request& request, SaveCallback save,
+                                                        void* context) {
+    // Form key is "fallback_repeat" (not the JSON spelling) because the
+    // shared form parser limits keys to MAX_FORM_KEY_BYTES (16).
+    static const char* const allowed[] = {"fallback_repeat"};
+    HttpRequest::FormData form;
+    if (!request.fallbackRepeatSupported || !parseFormRequest(request, form, allowed))
+        return error(400, "unsupported fallback repeat configuration");
+    const char* enabled = form.get("fallback_repeat");
+    if (enabled && std::strcmp(enabled, "1") != 0) return error(400, "invalid fallback repeat value");
+    Config config = request.current;
+    config.fallbackRepeat = enabled != nullptr;
+    return persist(config, save, context);
+}
+
 __attribute__((noinline)) Response handleJsonConfig(const Request& request, SaveCallback save,
                                                     void* context) {
     if (!exactContentType(request, JSON)) return error(415, "unsupported content type");
@@ -359,7 +376,8 @@ __attribute__((noinline)) Response handleJsonConfig(const Request& request, Save
             "\"hostname\":\"" + config.hostname + "\",\"tcp_port\":" +
             std::to_string(config.tcpPort) + ",\"tcp_token_set\":" +
             (config.tcpToken[0] ? "true" : "false") + ",\"gps_enabled\":" +
-            (config.gpsEnabled ? "true" : "false") + "}}";
+            (config.gpsEnabled ? "true" : "false") + ",\"fallback_repeat_enabled\":" +
+            (config.fallbackRepeat ? "true" : "false") + "}}";
     }
     return response;
 }
@@ -385,7 +403,8 @@ Response handlePost(const Request& request, SaveCallback save, void* context) {
         std::strcmp(request.route, "/network") == 0 ||
         std::strcmp(request.route, "/token") == 0 ||
         std::strcmp(request.route, "/auth") == 0 ||
-        std::strcmp(request.route, "/gps") == 0;
+        std::strcmp(request.route, "/gps") == 0 ||
+        std::strcmp(request.route, "/fallback-repeat") == 0;
     if (formRoute && !exactContentType(request, FORM))
         return error(415, "unsupported content type");
     if (std::strcmp(request.route, "/hostname") == 0) return handleHostname(request, save, context);
@@ -393,6 +412,8 @@ Response handlePost(const Request& request, SaveCallback save, void* context) {
     if (std::strcmp(request.route, "/token") == 0) return handleToken(request, save, context);
     if (std::strcmp(request.route, "/auth") == 0) return handleAuth(request, save, context);
     if (std::strcmp(request.route, "/gps") == 0) return handleGps(request, save, context);
+    if (std::strcmp(request.route, "/fallback-repeat") == 0)
+        return handleFallbackRepeat(request, save, context);
     if (std::strcmp(request.route, "/api/config") == 0)
         return handleJsonConfig(request, save, context);
     return error(404, "not found");

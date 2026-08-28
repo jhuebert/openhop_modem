@@ -19,6 +19,7 @@ struct Request {
     const char* host = nullptr;
     Rak4631Config::Config current{};
     bool gpsSupported = false;
+    bool fallbackRepeatSupported = false;
 };
 
 struct Response {

@@ -30,6 +30,7 @@ struct Config {
     uint16_t  tcpPort;   // default 5055
     bool      wifiExternalAntenna; // C6-only when BOARD enables antenna switch
     bool      gpsEnabled; // default off; applies to any board with GPS UART pins
+    bool      fallbackRepeatEnabled = false; // fallback flood-repeat when host is silent
 };
 
 // Poll PRG button at boot; if held >= 3s, wipe NVS and reboot. Call from setup().
@@ -58,6 +59,12 @@ void        applyWifiAntennaSwitch();
 
 const Config& getConfig();
 void          saveConfig(const Config& cfg);
+
+// Last host-pushed radio config (CMD_SET_CONFIG payload), persisted so
+// the modem always powers up on whatever the host last configured.
+// loadRadioConfig returns false when nothing was saved yet.
+bool loadRadioConfig(void* out, size_t len);
+void saveRadioConfig(const void* data, size_t len);
 
 // Clear NVS Wi-Fi config and restart device. Does not return.
 void factoryReset();

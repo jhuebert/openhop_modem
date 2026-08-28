@@ -14,6 +14,7 @@ constexpr size_t PAYLOAD_SIZE = 1 + 2 + IPV4_BYTES + (3 * STRING_WIRE_SIZE);
 constexpr size_t RECORD_SIZE = HEADER_SIZE + PAYLOAD_SIZE + 4;
 constexpr uint8_t FLAG_STATIC_IP = 0x01;
 constexpr uint8_t FLAG_GPS_ENABLED = 0x02;
+constexpr uint8_t FLAG_FALLBACK_REPEAT = 0x04;
 
 size_t boundedLength(const char* text, size_t capacity) {
     if (!text) return 0;
@@ -149,7 +150,8 @@ bool Config::operator==(const Config& other) const {
            tcpPort == other.tcpPort &&
            std::strcmp(tcpToken, other.tcpToken) == 0 &&
            std::strcmp(httpPassword, other.httpPassword) == 0 &&
-           gpsEnabled == other.gpsEnabled;
+           gpsEnabled == other.gpsEnabled &&
+           fallbackRepeat == other.fallbackRepeat;
 }
 
 void sanitizeHostname(const char* input, char output[MAX_TEXT_LENGTH + 1]) {
@@ -191,6 +193,7 @@ Config makeDefaults(const char* hostname, uint16_t tcpPort, const char* tcpToken
     copyBounded(config.tcpToken, tcpToken);
     copyBounded(config.httpPassword, "password");
     config.gpsEnabled = false;
+    config.fallbackRepeat = false;
     return config;
 }
 
@@ -234,7 +237,8 @@ bool encode(const Config& input, uint8_t* output, size_t capacity, size_t& writt
     writeU16(cursor, SCHEMA_VERSION);
     writeU16(cursor, static_cast<uint16_t>(PAYLOAD_SIZE));
     *cursor++ = static_cast<uint8_t>((config.useStaticIP ? FLAG_STATIC_IP : 0) |
-                                     (config.gpsEnabled ? FLAG_GPS_ENABLED : 0));
+                                     (config.gpsEnabled ? FLAG_GPS_ENABLED : 0) |
+                                     (config.fallbackRepeat ? FLAG_FALLBACK_REPEAT : 0));
     writeU16(cursor, config.tcpPort);
     writeAddress(cursor, config.staticIP);
     writeAddress(cursor, config.subnet);
@@ -274,6 +278,7 @@ DecodeStatus decode(const uint8_t* data, size_t length, Config& output) {
     const uint8_t flags = *cursor++;
     decoded.useStaticIP = (flags & FLAG_STATIC_IP) != 0;
     decoded.gpsEnabled = (flags & FLAG_GPS_ENABLED) != 0;
+    decoded.fallbackRepeat = (flags & FLAG_FALLBACK_REPEAT) != 0;
     decoded.tcpPort = readU16(cursor);
     cursor += 2;
     readAddress(cursor, decoded.staticIP);
@@ -527,6 +532,81 @@ const char* getDfuBluetoothAddress() {
                  static_cast<unsigned>(dfuLowByte));
     }
     return address;
+}
+
+// ─── Last host radio config record ───────────────────────
+// One dedicated page next to the dual config slots; a single
+// magic+len+CRC-protected record holding the last CMD_SET_CONFIG
+// payload. Raw NVMC, same synchronous-SoftDevice discipline as
+// NrfConfigFlash above.
+constexpr uint32_t RADIO_RECORD_ADDRESS =
+    Rak4631ConfigStore::SLOT_B_ADDRESS + Rak4631ConfigStore::PAGE_SIZE;
+constexpr size_t RADIO_RECORD_DATA_MAX = 16;   // sizeof(RadioConfig) headroom
+constexpr size_t RADIO_RECORD_SIZE = 4 + 1 + RADIO_RECORD_DATA_MAX + 4;
+
+static bool radioRecordWaitReady() {
+    // A page erase is normally tens of milliseconds; keep the poll bounded
+    // so an NVMC fault cannot strand the host-command loop forever.
+    constexpr uint32_t READY_POLL_LIMIT = 16000000u;
+    for (uint32_t attempt = 0; attempt < READY_POLL_LIMIT; ++attempt) {
+        if (nrf_nvmc_ready_check(NRF_NVMC)) return true;
+    }
+    return false;
+}
+
+static bool radioRecordPageErase() {
+    if (!radioRecordWaitReady()) return false;
+    nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_ERASE);
+    nrf_nvmc_page_erase_start(NRF_NVMC, RADIO_RECORD_ADDRESS);
+    const bool erased = radioRecordWaitReady();
+    nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_READONLY);
+    return erased && radioRecordWaitReady();
+}
+
+static bool radioRecordWrite(const uint8_t* data, size_t length) {
+    if (!radioRecordWaitReady()) return false;
+    nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_WRITE);
+    bool written = true;
+    for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
+        uint32_t word = 0;
+        memcpy(&word, data + offset, sizeof(word));
+        *reinterpret_cast<volatile uint32_t*>(RADIO_RECORD_ADDRESS + offset) = word;
+        if (!radioRecordWaitReady()) {
+            written = false;
+            break;
+        }
+    }
+    nrf_nvmc_mode_set(NRF_NVMC, NRF_NVMC_MODE_READONLY);
+    return written && radioRecordWaitReady() &&
+           memcmp(reinterpret_cast<const void*>(RADIO_RECORD_ADDRESS), data, length) == 0;
+}
+
+bool saveRadioConfig(const void* data, size_t len) {
+    if (!data || len == 0 || len > RADIO_RECORD_DATA_MAX) return false;
+    if (!flashWritesAreSynchronous()) return false;
+    if (!radioRecordPageErase()) return false;
+
+    uint8_t record[RADIO_RECORD_SIZE] = {};
+    record[0] = 'O';
+    record[1] = 'H';
+    record[2] = 'C';
+    record[3] = 'R';
+    record[4] = static_cast<uint8_t>(len);
+    memcpy(record + 5, data, len);
+    writeU32(record + 5 + RADIO_RECORD_DATA_MAX, crc32(record, 5 + len));
+    return radioRecordWrite(record, sizeof(record));
+}
+
+bool loadRadioConfig(void* out, size_t len) {
+    if (!out || len == 0 || len > RADIO_RECORD_DATA_MAX) return false;
+    uint8_t record[RADIO_RECORD_SIZE];
+    memcpy(record, reinterpret_cast<const void*>(RADIO_RECORD_ADDRESS), sizeof(record));
+    if (memcmp(record, "OHCR", 4) != 0) return false;
+    if (record[4] != len) return false;
+    if (readU32(record + 5 + RADIO_RECORD_DATA_MAX) != crc32(record, 5 + len))
+        return false;
+    memcpy(out, record + 5, len);
+    return true;
 }
 
 }  // namespace Rak4631Config

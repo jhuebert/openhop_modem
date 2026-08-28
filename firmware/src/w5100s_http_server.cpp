@@ -24,7 +24,7 @@ RouteAction classifyRoute(HttpRequest::Method method, const char* route) {
         if (std::strcmp(route, "/update") == 0) return RouteAction::NOT_FOUND;
         static const char* const managementRoutes[] = {
             "/api/config", "/api/reboot", "/reboot", "/hostname",
-            "/network", "/token", "/auth", "/gps", "/dfu/ble",
+            "/network", "/token", "/auth", "/gps", "/fallback-repeat", "/dfu/ble",
         };
         for (const char* management : managementRoutes) {
             if (std::strcmp(route, management) == 0) return RouteAction::MANAGEMENT_POST;
@@ -144,6 +144,7 @@ WebUiShared::Model buildModel() {
     model.capabilities.updateAvailable = false;
     model.capabilities.httpFirmwareUpload = false;
     model.capabilities.writableManagement = true;
+    model.capabilities.fallbackRepeat = BOARD.has_lora_radio;
     // RAK-only recovery handoff. The external DFU app performs the actual upload;
     // Ethernet /update and staged-image activation remain disabled.
     model.capabilities.bleDfu = true;
@@ -175,6 +176,7 @@ WebUiShared::Model buildModel() {
     model.config.tcpPort = cfg.tcpPort;
     model.config.tcpTokenSet = cfg.tcpToken[0] != '\0';
     model.config.gpsEnabled = cfg.gpsEnabled;
+    model.config.fallbackRepeatEnabled = cfg.fallbackRepeat;
 
     model.battery.available = model.capabilities.battery;
     model.battery.voltageValid = runtime.status.battery_mv != 0xffff;
@@ -226,6 +228,8 @@ WebUiShared::Model buildModel() {
     model.radio.state = radioState(runtime);
     model.radio.standby = runtime.radioStandby;
     model.radio.autoCadEnabled = runtime.autoCadEnabled;
+    model.radio.fallbackRepeatEnabled = runtime.fallbackRepeatEnabled;
+    model.radio.fallbackActive = runtime.fallbackActive;
     model.radio.frequencyHz = runtime.radio.freq_hz;
     model.radio.bandwidthHz = runtime.radio.bandwidth_hz;
     model.radio.spreadingFactor = runtime.radio.sf;
@@ -353,6 +357,7 @@ __attribute__((noinline)) void dispatchManagementPost() {
     request.host = parser.header("Host");
     request.current = managementConfig;
     request.gpsSupported = GPSManager::hasGpsPins();
+    request.fallbackRepeatSupported = BOARD.has_lora_radio;
     const Rak4631WebHandlers::Response response =
         Rak4631WebHandlers::handlePost(request, saveManagementConfig, nullptr);
     queueResponse(response.status, response.contentType.c_str(), response.body);

@@ -19,6 +19,7 @@
 #include "bootloader_manager.h"
 #include "frame_parser.h"
 #include "compat.h"
+#include "fallback_repeat.h"
 #include "rf_frontend.h"
 #include "station_g3_power.h"
 #include "runtime_stats.h"
@@ -272,8 +273,8 @@ static _WiFiStub WiFi;
 
 // ─── Version ─────────────────────────────────────────────────
 // Base version is shared by every board; the board's fw_suffix
-// distinguishes one binary from another (e.g. "v1.2.0-ikoka").
-#define FW_VERSION_BASE "v1.2.0"
+// distinguishes one binary from another (e.g. "v1.3.0-ikoka").
+#define FW_VERSION_BASE "v1.3.0"
 static String fwVersion;   // populated in setup()
 
 // ─── Task watchdog — self-heal on loop() hang ───────────────
@@ -503,6 +504,8 @@ Snapshot capture() {
     snap.firmwareVersion = fwVersion;
     snap.radioStandby = radioStandby;
     snap.autoCadEnabled = autoCadEnabled;
+    snap.fallbackRepeatEnabled = FallbackRepeat::enabled();
+    snap.fallbackActive = FallbackRepeat::active();
     snap.hasBatteryChargeRatePctPerHour = BOARD.battery.fuel_gauge_i2c_addr != 0 &&
         BOARD.battery.fuel_gauge_crate_reg != 0;
     if (snap.hasBatteryChargeRatePctPerHour) {
@@ -977,8 +980,226 @@ void handleLoRaRx() {
     memcpy(rxPayload + 6, rxBuf, len);
 
     broadcastFrame(CMD_RX_PACKET, rxPayload, 6 + len);
+    FallbackRepeat::onRxPacket(rxBuf, len);
     lastPacketTime = millis();
     startReceive();
+}
+
+// ─── Last host radio config (persisted per board) ───────────
+// currentConfig lives in RAM only; persisting every CMD_SET_CONFIG
+// (written only on content change — hosts set config once per boot) lets
+// the modem power back up on the host's last preset after a reboot
+// during a host outage, instead of the compiled-in default. Restored
+// unconditionally at boot; a healthy host simply re-sends config over it.
+static RadioConfig savedRadioConfig;
+static bool savedRadioConfigValid = false;
+
+static void restoreSavedRadioConfig() {
+#if defined(ARDUINO_ARCH_ESP32)
+    savedRadioConfigValid = WifiManager::loadRadioConfig(&savedRadioConfig, sizeof(RadioConfig));
+#elif defined(BOARD_HELTEC_T114)
+    savedRadioConfigValid = NodeState::loadRadioConfig((uint8_t*)&savedRadioConfig, sizeof(RadioConfig));
+#elif defined(OPENHOP_ETHERNET_W5100S)
+    savedRadioConfigValid = Rak4631Config::loadRadioConfig(&savedRadioConfig, sizeof(RadioConfig));
+#else
+    // USB-only nRF52 builds have no persistence backing store (yet).
+    savedRadioConfigValid = false;
+#endif
+    if (savedRadioConfigValid) {
+        memcpy(&currentConfig, &savedRadioConfig, sizeof(RadioConfig));
+        Serial.printf("[BOOT] restored saved radio config freq=%lu bw=%lu sf=%u cr=%u\n",
+                      (unsigned long)currentConfig.freq_hz,
+                      (unsigned long)currentConfig.bandwidth_hz,
+                      (unsigned)currentConfig.sf, (unsigned)currentConfig.cr);
+    }
+}
+
+static void savePersistedRadioConfig() {
+    if (savedRadioConfigValid &&
+        memcmp(&currentConfig, &savedRadioConfig, sizeof(RadioConfig)) == 0) {
+        return;   // unchanged — avoid pointless flash writes
+    }
+#if defined(ARDUINO_ARCH_ESP32)
+    WifiManager::saveRadioConfig(&currentConfig, sizeof(RadioConfig));
+#elif defined(BOARD_HELTEC_T114)
+    NodeState::saveRadioConfig((const uint8_t*)&currentConfig, sizeof(RadioConfig));
+#elif defined(OPENHOP_ETHERNET_W5100S)
+    Rak4631Config::saveRadioConfig(&currentConfig, sizeof(RadioConfig));
+#else
+    return;
+#endif
+    savedRadioConfig = currentConfig;
+    savedRadioConfigValid = true;
+}
+
+// ─── Shared internal TX path ────────────────────────────────
+// The complete radio TX sequence: reception guard → optional auto-CAD
+// scan loop → standby → prepareTransmit → startTransmit → IRQ wait →
+// finishTransmit, including the hard-timeout radio recovery. Shared
+// verbatim between host-driven TX and fallback-repeat TX (which always
+// runs with auto-CAD so it cannot talk over a neighbour it just received
+// from, regardless of the host's autoCadEnabled setting). Replies to the
+// host are the caller's job.
+enum class TxResult : uint8_t { OK, BUSY, FAILED };
+
+static TxResult doInternalTx(const uint8_t* payload, uint16_t len, bool useAutoCad) {
+    // Reception guard, independent of auto-CAD: a frame being received
+    // is authoritative — refuse rather than trample it. The radio stays
+    // untouched (standby or startReceive() here would abort the frame);
+    // its terminal IRQ delivers it to the host, and the host retries the
+    // TX within its LBT budget on ERR_CHANNEL_BUSY.
+    if (isReceivingPacket()) {
+        return TxResult::BUSY;
+    }
+    // v0.5.7: non-blocking TX with our own timeout.
+    // The previous radio.transmit() was synchronous and could wait
+    // indefinitely when SX1262 lost the TX_DONE IRQ (observed after CAD
+    // timeouts), which in turn blocked loop() long enough for the 30 s
+    // task watchdog to reboot the firmware every minute.
+    isTxActive = true;
+
+    // ─── Auto-CAD before TX (when enabled by controller) ──
+    // Up to CAD_AUTO_RETRIES of CAD-with-backoff. If the
+    // channel is busy after every retry, we bail with
+    // ERR_CHANNEL_BUSY instead of trampling a neighbour.
+    // Local decision (lowest latency vs P4-managed equivalent).
+    // All channel checks run BEFORE the standby that stages the
+    // TX: standby() aborts an in-progress reception, so the old
+    // order destroyed the very reception it was about to probe.
+    if (useAutoCad) {
+        // 2 retries (3 scans total) + tightened jitter caps
+        // worst-case main-loop blocking around ~750 ms.
+        // Important because the loop also drains the UART RX
+        // ring — at 921600 baud the controller can push
+        // ~46 KB/s and our SERIAL_BUFFER_SIZE is 512 B.
+        constexpr uint8_t  CAD_AUTO_RETRIES   = 2;
+        constexpr uint32_t CAD_TIMEOUT_MS     = 200;   // worst-case SF12 ≈ 100 ms
+        bool channel_clear = false;
+        bool reception_busy = false;
+        for (uint8_t attempt = 0; attempt < CAD_AUTO_RETRIES; attempt++) {
+            // Passive guard first: a latched in-progress reception
+            // is authoritative — return busy without a scan, standby,
+            // or RX restart that would abort/discard the frame.
+            if (isReceivingPacket()) {
+                reception_busy = true;
+                break;
+            }
+            ChannelScanConfig_t cfg = {};
+            cfg.cad.symNum    = cadSymNum;
+            cfg.cad.detPeak   = cadDetPeak;
+            cfg.cad.detMin    = cadDetMin;
+            cfg.cad.exitMode  = cadExitMode;
+            cfg.cad.irqFlags  = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS;
+            cfg.cad.irqMask   = RADIOLIB_IRQ_CAD_DEFAULT_MASK;
+            dio1Flag = false;
+            if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) {
+                dio1Flag = false;
+                break;
+            }
+            uint32_t cad_t0 = millis();
+            uint16_t irq = 0;
+            while ((millis() - cad_t0) < CAD_TIMEOUT_MS) {
+                irq = radio.getIrqFlags();
+                if (irq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
+                compatWdtReset();
+                delay(2);
+            }
+            radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
+                                RADIOLIB_SX126X_IRQ_CAD_DETECTED);
+            dio1Flag = false;
+            // A stale RX_DONE software flag must never count as CAD
+            // completion. Only the chip's CAD_DONE flag proves the scan
+            // finished and makes a clear/busy verdict meaningful.
+            if (!(irq & RADIOLIB_SX126X_IRQ_CAD_DONE)) break;
+            bool busy = (irq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) != 0;
+            if (!busy) { channel_clear = true; break; }
+            // Random backoff 50-200 ms to prevent step-locking with
+            // another sector that retried at the same time. (The old
+            // delay(20 + (millis() & 0x1F)) waited 20-51 ms despite
+            // its comment; micros() is the jitter source because
+            // Arduino random() is unseeded — and identical — on the
+            // nRF52 targets.)
+            delay(50 + (micros() % 150));
+        }
+        // The passive guard already answered without changing radio
+        // state; leave RX and its terminal IRQ untouched for loop().
+        if (reception_busy) {
+            isTxActive = false;
+            return TxResult::BUSY;
+        }
+        if (!channel_clear) {
+            LOG_R_WARN("auto-CAD: channel busy after retries, abort TX");
+            isTxActive = false;
+            startReceive();
+            return TxResult::BUSY;
+        }
+    }
+
+    radio.standby();
+    delay(1);
+
+    // If the operator enabled the V4.3 external RX LNA, it must be
+    // treated as an RX-only state. Restore CTX HIGH before TX so the
+    // KCT8103L front-end leaves the receive-LNA path.
+    RFFrontEnd::prepareTransmit();
+
+    dio1Flag = false;
+    uint32_t irqStart = dio1IrqCount;
+    setTxLed(true);
+    int state = radio.startTransmit((uint8_t*)payload, len);
+    LOG_R_INFO("TX_REQUEST len=%u state=%d", (unsigned)len, state);
+    if (state != RADIOLIB_ERR_NONE) {
+        LOG_R_ERR("startTransmit() failed, state=%d", state);
+        isTxActive = false;
+        radio.finishTransmit();
+        setTxLed(false);
+        startReceive();
+        return TxResult::FAILED;
+    }
+
+    // Worst-case airtime for SF12/BW7.8k at 255 B ≈ 20 s, but the
+    // sector controller upstream caps a per-sector slot at ~4 s.
+    // Aligning closely (4500 ms) so a wedged-radio LOG_R_ERR
+    // ("hard timeout") still reaches the controller right after
+    // its own TIMEOUT log — useful for distinguishing "modem is
+    // stuck waiting on DIO1" from "modem finished but TX_DONE
+    // didn't make it back through UART".
+    const uint32_t TX_TIMEOUT_MS = 4500;
+    uint32_t txStart = millis();
+    while (!dio1Flag && (millis() - txStart) < TX_TIMEOUT_MS) {
+        compatWdtReset();   // keep watchdog happy while we poll
+        delay(2);
+    }
+
+    bool txOk = dio1Flag;
+    radio.finishTransmit();
+    setTxLed(false);
+    dio1Flag = false;
+    isTxActive = false;
+    lastPacketTime = millis();
+
+    if (txOk) {
+        status.tx_count++;
+    } else {
+        // Hard TX timeout — the SX1262 is likely stuck in a bad state.
+        // Rebuild from scratch: standby → re-apply full config → RX.
+        LOG_R_ERR("TX hard timeout (%u bytes, dio1_delta=%lu) — resetting radio",
+                  (unsigned)len, (unsigned long)(dio1IrqCount - irqStart));
+        radio.standby();
+        delay(5);
+        applyConfig(currentConfig);
+    }
+    startReceive();
+    return txOk ? TxResult::OK : TxResult::FAILED;
+}
+
+// ─── Fallback flood-repeat hooks ────────────────────────────
+static bool fallbackTxHook(const uint8_t* data, uint8_t len) {
+    return doInternalTx(data, len, /*useAutoCad=*/true) == TxResult::OK;
+}
+
+static uint32_t fallbackAirtimeMsHook(uint8_t len) {
+    return (uint32_t)(radio.getTimeOnAir(len) / 1000);
 }
 
 // ─── Host command dispatch ──────────────────────────────────
@@ -986,6 +1207,9 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                         TransportSource src) {
     // Any successfully-processed host frame counts toward OTA sanity.
     OTAManager::notifyValidFrame();
+    // Any valid host frame (on any transport) proves the host repeater is
+    // alive — this is what disengages the fallback repeat mode instantly.
+    FallbackRepeat::noteHostFrame();
 
     // Boards without a LoRa radio, or boards where SX1262 init failed,
     // ack the non-radio commands (PING, GET_VERSION, GET_WIFI, AUTH, …)
@@ -1010,148 +1234,8 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             sendError(ERR_PAYLOAD_TOO_BIG, src);
             break;
         }
-        // Reception guard, independent of auto-CAD: a frame being received
-        // is authoritative — refuse rather than trample it. The radio stays
-        // untouched (standby or startReceive() here would abort the frame);
-        // its terminal IRQ delivers it to the host, and the host retries the
-        // TX within its LBT budget on ERR_CHANNEL_BUSY.
-        if (isReceivingPacket()) {
-            sendError(ERR_CHANNEL_BUSY, src);
-            break;
-        }
-        // v0.5.7: non-blocking TX with our own timeout.
-        // The previous radio.transmit() was synchronous and could wait
-        // indefinitely when SX1262 lost the TX_DONE IRQ (observed after CAD
-        // timeouts), which in turn blocked loop() long enough for the 30 s
-        // task watchdog to reboot the firmware every minute.
-        isTxActive = true;
-
-        // ─── Auto-CAD before TX (when enabled by controller) ──
-        // Up to CAD_AUTO_RETRIES of CAD-with-backoff. If the
-        // channel is busy after every retry, we bail with
-        // ERR_CHANNEL_BUSY instead of trampling a neighbour.
-        // Local decision (lowest latency vs P4-managed equivalent).
-        // All channel checks run BEFORE the standby that stages the
-        // TX: standby() aborts an in-progress reception, so the old
-        // order destroyed the very reception it was about to probe.
-        if (autoCadEnabled) {
-            // 2 retries (3 scans total) + tightened jitter caps
-            // worst-case main-loop blocking around ~750 ms.
-            // Important because the loop also drains the UART RX
-            // ring — at 921600 baud the controller can push
-            // ~46 KB/s and our SERIAL_BUFFER_SIZE is 512 B.
-            constexpr uint8_t  CAD_AUTO_RETRIES   = 2;
-            constexpr uint32_t CAD_TIMEOUT_MS     = 200;   // worst-case SF12 ≈ 100 ms
-            bool channel_clear = false;
-            bool reception_busy = false;
-            for (uint8_t attempt = 0; attempt < CAD_AUTO_RETRIES; attempt++) {
-                // Passive guard first: a latched in-progress reception
-                // is authoritative — return busy without a scan, standby,
-                // or RX restart that would abort/discard the frame.
-                if (isReceivingPacket()) {
-                    reception_busy = true;
-                    break;
-                }
-                ChannelScanConfig_t cfg = {};
-                cfg.cad.symNum    = cadSymNum;
-                cfg.cad.detPeak   = cadDetPeak;
-                cfg.cad.detMin    = cadDetMin;
-                cfg.cad.exitMode  = cadExitMode;
-                cfg.cad.irqFlags  = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS;
-                cfg.cad.irqMask   = RADIOLIB_IRQ_CAD_DEFAULT_MASK;
-                dio1Flag = false;
-                if (radio.startChannelScan(cfg) != RADIOLIB_ERR_NONE) {
-                    dio1Flag = false;
-                    break;
-                }
-                uint32_t cad_t0 = millis();
-                uint16_t irq = 0;
-                while ((millis() - cad_t0) < CAD_TIMEOUT_MS) {
-                    irq = radio.getIrqFlags();
-                    if (irq & RADIOLIB_SX126X_IRQ_CAD_DONE) break;
-                    compatWdtReset();
-                    delay(2);
-                }
-                radio.clearIrqFlags(RADIOLIB_SX126X_IRQ_CAD_DONE |
-                                    RADIOLIB_SX126X_IRQ_CAD_DETECTED);
-                dio1Flag = false;
-                // A stale RX_DONE software flag must never count as CAD
-                // completion. Only the chip's CAD_DONE flag proves the scan
-                // finished and makes a clear/busy verdict meaningful.
-                if (!(irq & RADIOLIB_SX126X_IRQ_CAD_DONE)) break;
-                bool busy = (irq & RADIOLIB_SX126X_IRQ_CAD_DETECTED) != 0;
-                if (!busy) { channel_clear = true; break; }
-                // Random backoff 50-200 ms to prevent step-locking with
-                // another sector that retried at the same time. (The old
-                // delay(20 + (millis() & 0x1F)) waited 20-51 ms despite
-                // its comment; micros() is the jitter source because
-                // Arduino random() is unseeded — and identical — on the
-                // nRF52 targets.)
-                delay(50 + (micros() % 150));
-            }
-            // The passive guard already answered without changing radio
-            // state; leave RX and its terminal IRQ untouched for loop().
-            if (reception_busy) {
-                isTxActive = false;
-                sendError(ERR_CHANNEL_BUSY, src);
-                break;
-            }
-            if (!channel_clear) {
-                LOG_R_WARN("auto-CAD: channel busy after retries, abort TX");
-                isTxActive = false;
-                sendError(ERR_CHANNEL_BUSY, src);
-                startReceive();
-                break;
-            }
-        }
-
-        radio.standby();
-        delay(1);
-
-        // If the operator enabled the V4.3 external RX LNA, it must be
-        // treated as an RX-only state. Restore CTX HIGH before TX so the
-        // KCT8103L front-end leaves the receive-LNA path.
-        RFFrontEnd::prepareTransmit();
-
-        dio1Flag = false;
-        uint32_t irqStart = dio1IrqCount;
-        setTxLed(true);
-        int state = radio.startTransmit((uint8_t*)payload, len);
-        LOG_R_INFO("TX_REQUEST len=%u src=%u state=%d",
-                   (unsigned)len, (unsigned)src, state);
-        if (state != RADIOLIB_ERR_NONE) {
-            LOG_R_ERR("startTransmit() failed, state=%d", state);
-            isTxActive = false;
-            radio.finishTransmit();
-            setTxLed(false);
-            sendError(ERR_TX_TIMEOUT, src);
-            startReceive();
-            break;
-        }
-
-        // Worst-case airtime for SF12/BW7.8k at 255 B ≈ 20 s, but the
-        // sector controller upstream caps a per-sector slot at ~4 s.
-        // Aligning closely (4500 ms) so a wedged-radio LOG_R_ERR
-        // ("hard timeout") still reaches the controller right after
-        // its own TIMEOUT log — useful for distinguishing "modem is
-        // stuck waiting on DIO1" from "modem finished but TX_DONE
-        // didn't make it back through UART".
-        const uint32_t TX_TIMEOUT_MS = 4500;
-        uint32_t txStart = millis();
-        while (!dio1Flag && (millis() - txStart) < TX_TIMEOUT_MS) {
-            compatWdtReset();   // keep watchdog happy while we poll
-            delay(2);
-        }
-
-        bool txOk = dio1Flag;
-        radio.finishTransmit();
-        setTxLed(false);
-        dio1Flag = false;
-        isTxActive = false;
-        lastPacketTime = millis();
-
-        if (txOk) {
-            status.tx_count++;
+        TxResult txResult = doInternalTx(payload, len, autoCadEnabled);
+        if (txResult == TxResult::OK) {
             uint32_t airtime_us = radio.getTimeOnAir(len);
             uint8_t resp[4];
             resp[0] = airtime_us & 0xFF;
@@ -1162,16 +1246,9 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
             LOG_R_INFO("TX_DONE airtime=%lu us, sent via src=%u",
                        (unsigned long)airtime_us, (unsigned)src);
         } else {
-            // Hard TX timeout — the SX1262 is likely stuck in a bad state.
-            // Rebuild from scratch: standby → re-apply full config → RX.
-            LOG_R_ERR("TX hard timeout (%u bytes, dio1_delta=%lu) — resetting radio",
-                      (unsigned)len, (unsigned long)(dio1IrqCount - irqStart));
-            radio.standby();
-            delay(5);
-            applyConfig(currentConfig);
-            sendError(ERR_TX_TIMEOUT, src);
+            sendError(txResult == TxResult::BUSY ? ERR_CHANNEL_BUSY
+                                                 : ERR_TX_TIMEOUT, src);
         }
-        startReceive();
         break;
     }
 
@@ -1303,6 +1380,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
                    (unsigned)currentConfig.syncword,
                    (unsigned)currentConfig.preamble_len);
         if (applyConfig(currentConfig)) {
+            savePersistedRadioConfig();
             sendFrame(CMD_CONFIG_RESP, (uint8_t*)&currentConfig, sizeof(RadioConfig), src);
             startReceive();
         } else {
@@ -1409,6 +1487,25 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         sendFrame(CMD_SET_AUTO_CAD_RESP, &status, 1, src);
         break;
     }
+    case CMD_SET_FALLBACK_REPEAT: {
+        // Enables/disables the fallback flood-repeat mode ("repeater
+        // down" survival mode): when on, the modem repeats flood-routed
+        // packets itself after the host has been silent for
+        // FALLBACK_REPEAT_ENGAGE_TIMEOUT_SEC, so the mesh keeps its
+        // relay capability during a host outage. Never repeats while
+        // the host is alive. Persisted like CMD_SET_AUTO_CAD;
+        // networked boards can also use the web UI.
+        if (len < 1) { sendError(ERR_INVALID_CMD, src); break; }
+        bool on = payload[0] != 0;
+        FallbackRepeat::setEnabled(on);
+#if defined(BOARD_HELTEC_T114)
+        NodeState::setFallbackRepeat(on);
+#endif
+        LOG_R_INFO("fallback repeat %s", on ? "ON" : "OFF");
+        uint8_t status = 0;
+        sendFrame(CMD_SET_FALLBACK_REPEAT_RESP, &status, 1, src);
+        break;
+    }
     case CMD_SET_DISPLAY_NAME: {
         // Controller pushes the per-sector display name (≤ 16 ASCII
         // bytes). Stored in the OledDisplay instance + LittleFS so
@@ -1429,6 +1526,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
         RFFrontEnd::prepareStandby();
         radio.standby();
         radioStandby = true;
+        FallbackRepeat::onRadioStandbyChanged(true);
         oled.setStandby(true);
 #if defined(BOARD_HELTEC_T114)
         NodeState::setStandby(true);
@@ -1440,6 +1538,7 @@ void processHostCommand(uint8_t cmd, const uint8_t* payload, uint16_t len,
     }
     case CMD_RADIO_RESUME: {
         radioStandby = false;
+        FallbackRepeat::onRadioStandbyChanged(false);
         oled.setStandby(false);
 #if defined(BOARD_HELTEC_T114)
         NodeState::setStandby(false);
@@ -1616,6 +1715,12 @@ void setup() {
         Serial.printf("[BOOT] reset_reason=%d (%s)\n", rr, lbl);
     }
 
+    // Restore the last host-pushed radio config before radio init so a
+    // modem power cycle during a host outage comes back on the right
+    // preset instead of the compiled-in default. No-op when nothing was
+    // persisted yet (see savePersistedRadioConfig()).
+    restoreSavedRadioConfig();
+
     // On boards with a PMU (LilyGO T-Beam-S3 Supreme), the OLED/LoRa/GNSS
     // rails are unpowered until this runs — must come before oled.begin(),
     // SPI.begin()/radio.begin(), and GPSManager::begin() below. No-op on
@@ -1745,6 +1850,21 @@ void setup() {
     // GPIOs are released) and fall back to Wi-Fi. Boards without
     // Ethernet (`ethernet.enabled = false`) skip straight to Wi-Fi.
     WifiManager::loadConfigOnly();
+
+    // Load the fallback-repeat enable flag + register the TX hooks. The
+    // flag is stored per board (NVS / NodeState / Rak4631Config); the
+    // module engages only after FALLBACK_REPEAT_ENGAGE_TIMEOUT_SEC of
+    // host silence, so a healthy host is never double-repeated.
+    bool fallbackEnabled = false;
+#if defined(BOARD_HELTEC_T114)
+    fallbackEnabled = NodeState::getFallbackRepeat();
+#elif defined(OPENHOP_ETHERNET_W5100S)
+    fallbackEnabled = Rak4631Config::getConfig().fallbackRepeat;
+#elif defined(ARDUINO_ARCH_ESP32)
+    fallbackEnabled = WifiManager::getConfig().fallbackRepeatEnabled;
+#endif
+    FallbackRepeat::begin(fallbackEnabled, fallbackTxHook, fallbackAirtimeMsHook);
+
     const auto& netCfg = WifiManager::getConfig();
     bool useEthernet = false;
     if (BOARD.ethernet.enabled) {
@@ -1959,6 +2079,7 @@ void loop() {
 #endif
 
     sampleNoiseFloor();
+    FallbackRepeat::loop(radioReady, radioStandby, isTxActive);
     maybeResetAgc();
     if (BOARD.has_wifi) WifiManager::loop();
     EthernetManager::loop();

@@ -21,6 +21,7 @@ struct Capabilities {
     bool writableManagement = false;
     bool exposeTcpToken = false;
     bool bleDfu = false;
+    bool fallbackRepeat = false;
 };
 
 struct NetworkModel {
@@ -54,6 +55,7 @@ struct ConfigModel {
     bool heltecV43ExternalLnaEnabled = false;
     bool heltecV43FemLnaBypassed = false;
     uint16_t agcResetIntervalSec = 0;
+    bool fallbackRepeatEnabled = false;
 };
 
 struct BatteryModel {
@@ -114,6 +116,8 @@ struct RadioModel {
     std::string state = "unknown";
     bool standby = false;
     bool autoCadEnabled = false;
+    bool fallbackRepeatEnabled = false;
+    bool fallbackActive = false;
     uint32_t frequencyHz = 0;
     uint32_t bandwidthHz = 0;
     uint8_t spreadingFactor = 0;

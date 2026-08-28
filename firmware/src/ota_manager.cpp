@@ -221,6 +221,7 @@ static WebUiShared::Model buildWebUiModel() {
     model.capabilities.httpFirmwareUpload = true;
     model.capabilities.writableManagement = true;
     model.capabilities.exposeTcpToken = true;
+    model.capabilities.fallbackRepeat = BOARD.has_lora_radio;
 
     model.network.interfaceName = net.iface;
     model.network.live = net.live;
@@ -249,6 +250,7 @@ static WebUiShared::Model buildWebUiModel() {
     model.config.tcpToken = cfg.tcpToken.c_str();
     model.config.wifiExternalAntenna = cfg.wifiExternalAntenna;
     model.config.gpsEnabled = cfg.gpsEnabled;
+    model.config.fallbackRepeatEnabled = cfg.fallbackRepeatEnabled;
     model.config.heltecV43ExternalLnaEnabled = RFFrontEnd::isExternalLnaEnabled();
     model.config.heltecV43FemLnaBypassed = RFFrontEnd::isFemLnaBypassed();
     model.config.agcResetIntervalSec = RFFrontEnd::getAgcResetIntervalSec();
@@ -306,6 +308,8 @@ static WebUiShared::Model buildWebUiModel() {
     model.radio.state = radioStateLabel(snap);
     model.radio.standby = snap.radioStandby;
     model.radio.autoCadEnabled = snap.autoCadEnabled;
+    model.radio.fallbackRepeatEnabled = snap.fallbackRepeatEnabled;
+    model.radio.fallbackActive = snap.fallbackActive;
     model.radio.frequencyHz = snap.radio.freq_hz;
     model.radio.bandwidthHz = snap.radio.bandwidth_hz;
     model.radio.spreadingFactor = snap.radio.sf;
@@ -439,6 +443,10 @@ static String buildRadioJson(const RuntimeStats::Snapshot& snap) {
     body += boolJson(snap.radioStandby);
     body += F(",\"auto_cad_enabled\":");
     body += boolJson(snap.autoCadEnabled);
+    body += F(",\"fallback_repeat_enabled\":");
+    body += boolJson(snap.fallbackRepeatEnabled);
+    body += F(",\"fallback_active\":");
+    body += boolJson(snap.fallbackActive);
     body += F(",\"frequency_hz\":");
     body += String(snap.radio.freq_hz);
     body += F(",\"frequency_mhz\":");
@@ -586,6 +594,8 @@ static String buildConfigJson(const WifiManager::Config& cfg) {
         body += F(",\"station_g3_external_lna_enabled\":");
         body += boolJson(RFFrontEnd::isStationG3LnaEnabled());
     }
+    body += F(",\"fallback_repeat_enabled\":");
+    body += boolJson(cfg.fallbackRepeatEnabled);
     body += F(",\"gps_enabled\":");
     body += boolJson(cfg.gpsEnabled);
     body += F(",\"gps_available\":");
@@ -737,6 +747,19 @@ static bool applyConfigPatch(JsonVariantConst root,
             return false;
         }
         cfg.gpsEnabled = gpsVal.as<bool>();
+    }
+
+    JsonVariantConst fbRepVal = obj["fallback_repeat_enabled"];
+    if (!fbRepVal.isNull()) {
+        if (!BOARD.has_lora_radio) {
+            error = "fallback_repeat_enabled is not supported on this board.";
+            return false;
+        }
+        if (!fbRepVal.is<bool>()) {
+            error = "fallback_repeat_enabled must be true or false.";
+            return false;
+        }
+        cfg.fallbackRepeatEnabled = fbRepVal.as<bool>();
     }
 
     JsonVariantConst paVal = obj["pa_high_power_enabled"];
@@ -1479,6 +1502,28 @@ static void handleGpsSave() {
                        : F("The GPS UART is disabled and the setting has been saved."));
 }
 
+static void handleFallbackRepeatSave() {
+    if (!checkAuth()) return;
+
+    if (!BOARD.has_lora_radio) {
+        httpServer->send(400, "text/plain", "Fallback repeat is not supported on this board.\n");
+        return;
+    }
+
+    WifiManager::Config cfg = WifiManager::getConfig();
+    cfg.fallbackRepeatEnabled = httpServer->hasArg("fallback_repeat");
+    WifiManager::saveConfig(cfg);
+
+    Serial.printf("[OTA] fallback repeat %s by %s\n",
+                  cfg.fallbackRepeatEnabled ? "enabled" : "disabled",
+                  httpServer->client().remoteIP().toString().c_str());
+
+    sendSimplePage(F("Fallback repeat saved"),
+                   F("Fallback repeat saved"),
+                   F("The modem will reboot now. When enabled, it repeats flood-routed packets only while the host repeater has been silent for a few minutes."));
+    delay(500);
+    ESP.restart();
+}
 
 static void handleRfLnaSave() {
     if (!checkAuth()) return;
@@ -1717,6 +1762,7 @@ void begin(const String& hn, const String& tk) {
     httpServer->on("/hostname", HTTP_POST, handleHostnameSave);
     httpServer->on("/network", HTTP_POST, handleNetworkSave);
     httpServer->on("/gps",     HTTP_POST, handleGpsSave);
+    httpServer->on("/fallback-repeat", HTTP_POST, handleFallbackRepeatSave);
     httpServer->on("/rf-lna",  HTTP_POST, handleRfLnaSave);
     if (RFFrontEnd::hasPaModeControl() && RFFrontEnd::hasStationG3LnaControl()) {
         httpServer->on("/rf-pa", HTTP_POST, handleRfPaSave);
