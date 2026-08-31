@@ -248,6 +248,7 @@ static WebUiShared::Model buildWebUiModel() {
     model.config.tcpTokenSet = cfg.tcpToken.length() > 0;
     model.config.tcpToken = cfg.tcpToken.c_str();
     model.config.wifiExternalAntenna = cfg.wifiExternalAntenna;
+    model.config.wifiPowerSave = cfg.wifiPowerSave;
     model.config.gpsEnabled = cfg.gpsEnabled;
     model.config.heltecV43ExternalLnaEnabled = RFFrontEnd::isExternalLnaEnabled();
     model.config.heltecV43FemLnaBypassed = RFFrontEnd::isFemLnaBypassed();
