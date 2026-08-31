@@ -1,0 +1,3 @@
+f61bdb5a2cb03c3c8ede8ca7048989aab3546e561bdf4afb6f90ac55da60d621  firmware.hex
+8b081eb7f6933e05aab5189a1aacbdab9676d8e2456c14b6fcb95dcdde03a37c  firmware.zip
+5c2bd05b2acd6735e7d883b3927707005fcf817c469b62e3668af244fe2de9b1  firmware.uf2
