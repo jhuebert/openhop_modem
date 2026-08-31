@@ -1048,7 +1048,7 @@ static void handleRoot() {
     if (BOARD.has_wifi) {
         body += F("<div class='checkline'><input type='checkbox' id='wifi_ps' name='wifi_ps' value='1'");
         if (cfg.wifiPowerSave) body += F(" checked");
-        body += F("><label for='wifi_ps'>Wi-Fi power save (disable for lower latency, higher power draw)</label></div>");
+        body += F("><label for='wifi_ps' title='Disable for lower latency, higher power draw'>Wi-Fi power save</label></div>");
     }
     body += F("<button type='submit'>Save network settings</button></form></div></details>");
 
